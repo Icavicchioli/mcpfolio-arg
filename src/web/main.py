@@ -7,10 +7,13 @@ Provides REST API and WebSocket endpoints for financial analysis.
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.config import get_settings
@@ -29,6 +32,7 @@ class AnalysisRequest(BaseModel):
     include_news: bool = Field(True, description="Include news analysis")
     include_sentiment: bool = Field(True, description="Include sentiment data")
     include_fundamentals: bool = Field(True, description="Include fundamental data")
+    max_news: int = Field(5, description="Max news articles to fetch")
 
 
 class MarketSnapshotData(BaseModel):
@@ -83,10 +87,41 @@ class SessionManager:
     """Manage user session data (single user)"""
 
     def __init__(self):
+        self.data_dir = Path("data")
+        self.watchlist_path = self.data_dir / "watchlist.json"
         self.watchlist: list[WatchlistItem] = []
         self.analysis_history: list[AnalysisResponse] = []
         self.max_history = 50
+
+        # Load from disk
+        self._load_watchlist()
+
         logger.info("session_manager_initialized", max_history=self.max_history)
+
+    def _load_watchlist(self):
+        """Load watchlist from disk"""
+        try:
+            if self.watchlist_path.exists():
+                import json
+
+                with open(self.watchlist_path) as f:
+                    data = json.load(f)
+                    self.watchlist = [WatchlistItem(**item) for item in data]
+                logger.info("watchlist_loaded_from_disk", count=len(self.watchlist))
+        except Exception as e:
+            logger.error("watchlist_load_error", error=str(e))
+
+    def _save_watchlist(self):
+        """Save watchlist to disk"""
+        try:
+            import json
+
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.watchlist_path, "w") as f:
+                json.dump([w.model_dump(mode="json") for w in self.watchlist], f)
+            logger.debug("watchlist_saved_to_disk")
+        except Exception as e:
+            logger.error("watchlist_save_error", error=str(e))
 
     def add_to_watchlist(self, ticker: str, price: float | None = None):
         """Add ticker to watchlist"""
@@ -103,12 +138,14 @@ class SessionManager:
             last_updated=datetime.now() if price else None,
         )
         self.watchlist.append(item)
+        self._save_watchlist()
         logger.info("ticker_added_to_watchlist", ticker=ticker)
 
     def remove_from_watchlist(self, ticker: str):
         """Remove ticker from watchlist"""
         ticker = ticker.upper()
         self.watchlist = [w for w in self.watchlist if w.ticker != ticker]
+        self._save_watchlist()
         logger.info("ticker_removed_from_watchlist", ticker=ticker)
 
     def update_watchlist_price(self, ticker: str, price: float):
@@ -219,6 +256,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static files (serve built frontend)
+frontend_dist = Path(__file__).parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+
+
+def parse_tool_result(result: Any) -> dict:
+    """Extract and parse JSON from MCP tool result list"""
+    try:
+        if isinstance(result, list) and len(result) > 0:
+            content = result[0]
+            if isinstance(content, dict) and content.get("type") == "text":
+                import json
+
+                return cast(dict[Any, Any], json.loads(content.get("text", "{}")))
+        elif isinstance(result, dict):
+            return result
+        return {"error": "Unexpected tool result format", "raw": str(result)}
+    except Exception as e:
+        return {"error": f"Failed to parse tool result: {str(e)}", "raw": str(result)}
+
 
 # Helper function to run analysis
 async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
@@ -246,12 +304,13 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     if not market_snapshot_tool:
         raise HTTPException(status_code=500, detail="Market snapshot tool not available")
 
-    market_data = await asyncio.to_thread(market_snapshot_tool.fn, request.ticker)
+    raw_market_data = await market_snapshot_tool.ainvoke({"ticker": request.ticker})
+    market_data = parse_tool_result(raw_market_data)
 
     if market_data.get("error"):
         raise HTTPException(
             status_code=400,
-            detail=f"Failed to get market data: {market_data.get('message', 'Unknown error')}",
+            detail=f"Failed to get market data: {market_data.get('message', market_data.get('error', 'Unknown error'))}",
         )
 
     # Get sentiment data
@@ -259,7 +318,8 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     if request.include_sentiment:
         sentiment_tool = tool_map.get("get_sentiment_data")
         if sentiment_tool:
-            sentiment_result = await asyncio.to_thread(sentiment_tool.fn, request.ticker)
+            raw_sentiment = await sentiment_tool.ainvoke({"ticker": request.ticker})
+            sentiment_result = parse_tool_result(raw_sentiment)
             if not sentiment_result.get("error"):
                 sentiment_data = sentiment_result.get("ratings", [])
 
@@ -268,18 +328,22 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     if request.include_news:
         news_tool = tool_map.get("get_news")
         if news_tool:
-            news_result = await asyncio.to_thread(news_tool.fn, request.ticker)
+            raw_news = await news_tool.ainvoke(
+                {"ticker": request.ticker, "count": request.max_news}
+            )
+            news_result = parse_tool_result(raw_news)
             if not news_result.get("error"):
-                news_data = news_result.get("articles", [])
+                news_data = news_result.get("news", [])
 
     # Calculate risk score based on volatility
-    volatility = market_data.get("volatility_52week", 0)
-    risk_score = min(volatility * 200, 100)  # Scale volatility to 0-100
+    # Use a more balanced scale: 20% vol -> 25 score, 50% vol -> 60 score, 80% vol -> 100 score
+    volatility = market_data.get("volatility_52_week_pct", 0) / 100
+    risk_score = min(volatility * 125, 100)  # Reduced from 200 to 125 for more realistic assessment
 
     # Generate AI analysis (simplified for now - will integrate LangGraph later)
     ai_analysis = f"""Analysis for {request.ticker}:
 
-Current Price: ${market_data.get('price', 0):.2f}
+Current Price: ${market_data.get('current_price', 0):.2f}
 Volume: {market_data.get('volume', 0):,}
 52-Week Volatility: {volatility * 100:.1f}%
 
@@ -309,7 +373,7 @@ Based on current market conditions, this security shows {'elevated' if risk_scor
 
     # Update watchlist if ticker is in it
     if any(w.ticker == request.ticker.upper() for w in session.watchlist):
-        session.update_watchlist_price(request.ticker, market_data.get("price", 0))
+        session.update_watchlist_price(request.ticker, market_data.get("current_price", 0))
 
     logger.info(
         "analysis_complete",
@@ -323,9 +387,71 @@ Based on current market conditions, this security shows {'elevated' if risk_scor
 
 
 # REST Endpoints
-@app.get("/")
+@app.get("/api/config/models")
+async def get_available_models():
+    """Get available Ollama models"""
+    from src.ollama_pool import get_ollama_client, return_ollama_client
+
+    client = get_ollama_client()
+    try:
+        response = client.list()
+        # Ensure each model has a 'name' field for frontend compatibility
+        model_list = []
+        for m in response.get("models", []):
+            m_dict = dict(m) if not isinstance(m, dict) else m
+            name = m_dict.get("model") or m_dict.get("name")
+            model_list.append({"name": name, **m_dict})
+
+        return {"models": model_list, "active": settings.ollama_model}
+    finally:
+        return_ollama_client(client)
+
+
+@app.post("/api/config/model")
+async def set_active_model(model_request: dict):
+    """Set the active Ollama model"""
+    model_name = model_request.get("model")
+    if not model_name:
+        raise HTTPException(status_code=400, detail="Model name required")
+
+    settings.ollama_model = model_name
+    logger.info("active_model_changed", model=model_name)
+    return {"status": "updated", "active": settings.ollama_model}
+
+
+@app.post("/api/admin/shutdown")
+async def shutdown_all():
+    """Shutdown backend and Ollama"""
+    logger.info("remote_shutdown_triggered")
+
+    async def perform_shutdown():
+        await asyncio.sleep(1)
+        # Attempt to kill ollama process if we started it
+        import subprocess
+        from contextlib import suppress
+
+        with suppress(Exception):
+            subprocess.run(["pkill", "-f", "ollama serve"], check=False)
+
+        import os
+
+        os._exit(0)
+
+    asyncio.create_task(perform_shutdown())
+    return {
+        "status": "shutting_down",
+        "message": "Backend and Ollama services will stop in 1 second.",
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve a simple landing page"""
+    """Serve the dashboard UI"""
+    frontend_index = Path(__file__).parent / "frontend" / "dist" / "index.html"
+    if frontend_index.exists():
+        return FileResponse(str(frontend_index))
+
+    # Fallback to API lander if frontend not built
     html_content = """
     <!DOCTYPE html>
     <html>
@@ -471,7 +597,7 @@ async def get_analysis_history():
                 "ticker": analysis.ticker,
                 "timestamp": analysis.timestamp.isoformat(),
                 "risk_score": analysis.risk_score,
-                "price": analysis.market_snapshot.get("price"),
+                "price": analysis.market_snapshot.get("current_price"),
             }
             for analysis in session.analysis_history
         ]
@@ -561,6 +687,7 @@ async def websocket_analysis(websocket: WebSocket):
                     include_news=True,
                     include_sentiment=True,
                     include_fundamentals=True,
+                    max_news=5,
                 )
                 result = await run_analysis_task(request)
 
