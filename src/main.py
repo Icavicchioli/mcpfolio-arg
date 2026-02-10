@@ -4,7 +4,6 @@ import asyncio
 import os
 import subprocess
 import time
-from pathlib import Path
 from typing import Annotated, TypedDict
 
 import ollama
@@ -62,7 +61,7 @@ def get_server_path() -> str:
 
     Uses settings.mcp_server_path if configured, otherwise auto-detects.
     """
-    return settings.mcp_server_path
+    return str(settings.mcp_server_path)
 
 
 async def create_agent():
@@ -124,7 +123,7 @@ async def main():
     logger.info("application_started")
 
     # Clear terminal and show banner
-    os.system("cls" if os.name == "nt" else "clear")
+    subprocess.run(["cls"] if os.name == "nt" else ["clear"], check=False)
     banner = """========================================
       Quant-Ollama Financial Analyst
 ========================================
@@ -157,7 +156,7 @@ Type 'quit' or 'exit' to end the session.
                     continue
 
                 # Start new request with correlation ID
-                req_id = start_request()
+                start_request()
                 logger.info(
                     "user_query_received", query=user_input[:100], query_length=len(user_input)
                 )

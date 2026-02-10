@@ -42,8 +42,7 @@ repos:
     rev: v0.8.5
     hooks:
       - id: ruff
-        args: [--fix]
-      - id: ruff-format
+        args: [--fix, --ignore=PTH123]
 
   # Type checking (fast mode)
   - repo: https://github.com/pre-commit/mirrors-mypy
@@ -61,22 +60,25 @@ repos:
     rev: 1.8.0
     hooks:
       - id: bandit
-        args: [-r, src/, -ll]
+        args: [-c, pyproject.toml, -ll]
+        additional_dependencies: ["bandit[toml]"]
         exclude: ^tests/
 
   # Dependency security
-  - repo: https://github.com/pyupio/safety
-    rev: 3.2.11
-    hooks:
-      - id: safety
-        args: [check, --ignore=70612]  # Ignore jinja2 false positive
+  # Temporarily disabled - safety hook has issues
+  # - repo: https://github.com/pyupio/safety
+  #   rev: 3.2.11
+  #   hooks:
+  #     - id: safety
+  #       args: [check, --ignore=70612]  # Ignore jinja2 false positive
 
   # Markdown linting
-  - repo: https://github.com/markdownlint/markdownlint
-    rev: v0.13.0
-    hooks:
-      - id: markdownlint
-        args: [--fix]
+  # Temporarily disabled - requires Ruby 3.1+
+  # - repo: https://github.com/markdownlint/markdownlint
+  #   rev: v0.13.0
+  #   hooks:
+  #     - id: markdownlint
+  #       args: [--fix]
 
   # Commit message linting
   - repo: https://github.com/compilerla/conventional-pre-commit

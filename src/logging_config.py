@@ -38,13 +38,13 @@ def get_request_id() -> str:
     return request_id.get() or "no-request"
 
 
-def add_request_id(logger, method_name, event_dict):
+def add_request_id(logger, method_name, event_dict):  # noqa: ARG001
     """Processor to add request_id to all log entries"""
     event_dict["request_id"] = get_request_id()
     return event_dict
 
 
-def add_timestamp(logger, method_name, event_dict):
+def add_timestamp(logger, method_name, event_dict):  # noqa: ARG001
     """Add ISO timestamp to log entries"""
     from datetime import datetime
 
@@ -170,7 +170,7 @@ class LogTimer:
         self.logger = logger
         self.operation = operation
         self.extra = extra
-        self.start_time = None
+        self.start_time: float | None = None
 
     def __enter__(self):
         import time

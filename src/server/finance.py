@@ -11,6 +11,8 @@ from fastmcp import FastMCP
 
 # Add parent directory to path to import logging_config
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import contextlib
+
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -103,7 +105,7 @@ def get_market_snapshot(ticker: str) -> dict:
                     calendar_data = cal.to_dict(orient="index")
                 elif isinstance(cal, dict):
                     calendar_data = {
-                        k: str(v) if not isinstance(v, (int, float, bool, type(None))) else v
+                        k: str(v) if not isinstance(v, int | float | bool | type(None)) else v
                         for k, v in cal.items()
                     }
         except Exception:
@@ -115,7 +117,7 @@ def get_market_snapshot(ticker: str) -> dict:
             targets = stock.analyst_price_targets
             if targets is not None and isinstance(targets, dict):
                 analyst_targets = {
-                    k: float(v) if isinstance(v, (int, float)) else v for k, v in targets.items()
+                    k: float(v) if isinstance(v, int | float) else v for k, v in targets.items()
                 }
         except Exception:
             analyst_targets = None
@@ -128,7 +130,7 @@ def get_market_snapshot(ticker: str) -> dict:
                 # Convert to records and ensure JSON serializable
                 quarterly_income_data = [
                     {
-                        k: float(v) if isinstance(v, (int, float)) and pd.notna(v) else None
+                        k: float(v) if isinstance(v, int | float) and pd.notna(v) else None
                         for k, v in row.items()
                     }
                     for row in quarterly_income.head(4).to_dict(orient="records")
@@ -232,7 +234,7 @@ def get_sentiment_data(ticker: str, count: int = 5) -> dict:
         ratings_list = []
         for _, row in recent.iterrows():
             rating = {
-                k: (str(v) if pd.notna(v) and not isinstance(v, (int, float, bool)) else v)
+                k: (str(v) if pd.notna(v) and not isinstance(v, int | float | bool) else v)
                 for k, v in row.to_dict().items()
             }
             ratings_list.append(rating)
@@ -329,10 +331,8 @@ def get_news(ticker: str, count: int = 10, date: str | None = None) -> dict:
         try:
             news = stock.news
         except AttributeError:
-            try:
+            with contextlib.suppress(Exception):
                 news = stock.get_news()
-            except Exception:
-                pass
 
         if not news or len(news) == 0:
             logger.warning("no_news_available", ticker=ticker)
@@ -491,10 +491,8 @@ def get_fund_info(ticker: str) -> dict:
 
         # Fetch funds_data object
         funds_data = None
-        try:
+        with contextlib.suppress(Exception):
             funds_data = fund.funds_data
-        except Exception:
-            pass
 
         # If funds_data is None, the ticker likely doesn't exist or isn't a fund
         if funds_data is None:
@@ -514,7 +512,7 @@ def get_fund_info(ticker: str) -> dict:
                     fund_overview = overview.to_dict(orient="index")
                 elif isinstance(overview, dict):
                     fund_overview = {
-                        k: (str(v) if not isinstance(v, (int, float, bool, type(None))) else v)
+                        k: (str(v) if not isinstance(v, int | float | bool | type(None)) else v)
                         for k, v in overview.items()
                     }
         except Exception:
@@ -529,7 +527,7 @@ def get_fund_info(ticker: str) -> dict:
                     {
                         k: (
                             float(v)
-                            if isinstance(v, (int, float)) and pd.notna(v)
+                            if isinstance(v, int | float) and pd.notna(v)
                             else str(v) if pd.notna(v) else None
                         )
                         for k, v in row.items()
@@ -548,7 +546,7 @@ def get_fund_info(ticker: str) -> dict:
                     sector_weightings = sectors.to_dict(orient="index")
                 elif isinstance(sectors, dict):
                     sector_weightings = {
-                        k: (float(v) if isinstance(v, (int, float)) else v)
+                        k: (float(v) if isinstance(v, int | float) else v)
                         for k, v in sectors.items()
                     }
         except Exception:

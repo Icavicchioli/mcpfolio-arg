@@ -83,10 +83,7 @@ def mock_yfinance_ticker_with_sentiment(mock_yfinance_ticker, mock_sentiment_dat
         mock = mock_yfinance_ticker(ticker_symbol)
 
         sentiment = mock_sentiment_data.get(ticker_symbol, [])
-        if sentiment:
-            df = pd.DataFrame(sentiment)
-        else:
-            df = pd.DataFrame()
+        df = pd.DataFrame(sentiment) if sentiment else pd.DataFrame()
 
         mock.recommendations = df
         return mock
