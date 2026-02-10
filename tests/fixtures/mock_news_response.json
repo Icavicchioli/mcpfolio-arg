@@ -1,0 +1,34 @@
+[
+  {
+    "content": {
+      "title": "Apple Reports Record Q1 Earnings",
+      "provider": {
+        "displayName": "Bloomberg"
+      },
+      "canonicalUrl": {
+        "url": "https://example.com/apple-earnings"
+      },
+      "pubDate": "2026-02-01T14:30:00Z"
+    }
+  },
+  {
+    "content": {
+      "title": "iPhone 16 Launch Expected in September",
+      "provider": {
+        "displayName": "Reuters"
+      },
+      "canonicalUrl": {
+        "url": "https://example.com/iphone-16"
+      },
+      "providerPublishTime": 1738425600
+    }
+  },
+  {
+    "content": {
+      "title": "Apple Expands AI Features Across Devices",
+      "provider": "TechCrunch",
+      "link": "https://example.com/apple-ai",
+      "pubDate": "2026-01-28T10:15:00Z"
+    }
+  }
+]

@@ -1,0 +1,48 @@
+# Git attributes for consistent line endings and language detection
+
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Python
+*.py text eol=lf diff=python
+*.pyi text eol=lf diff=python
+
+# Configuration files
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.rst text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+
+# Graphics
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+
+# Archives
+*.gz binary
+*.zip binary
+*.tar binary
+*.whl binary
+
+# Ignore files from language detection
+*.lock linguist-generated=true
+htmlcov/* linguist-generated=true
+.pytest_cache/* linguist-generated=true
+
+# Mark vendored code
+tests/fixtures/* linguist-vendored

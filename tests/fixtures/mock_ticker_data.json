@@ -1,0 +1,41 @@
+{
+  "AAPL": {
+    "info": {
+      "symbol": "AAPL",
+      "currentPrice": 153.25,
+      "regularMarketVolume": 50234100,
+      "fiftyTwoWeekHigh": 180.00,
+      "fiftyTwoWeekLow": 120.00
+    },
+    "history": {
+      "dates": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01"],
+      "High": [155.0, 160.0, 175.0, 180.0],
+      "Low": [145.0, 150.0, 155.0, 160.0],
+      "Close": [150.0, 155.0, 170.0, 175.0]
+    }
+  },
+  "MSFT": {
+    "info": {
+      "symbol": "MSFT",
+      "currentPrice": 385.50,
+      "regularMarketVolume": 25123456,
+      "fiftyTwoWeekHigh": 420.00,
+      "fiftyTwoWeekLow": 310.00
+    },
+    "history": {
+      "dates": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01"],
+      "High": [390.0, 400.0, 415.0, 420.0],
+      "Low": [370.0, 375.0, 385.0, 395.0],
+      "Close": [380.0, 390.0, 405.0, 410.0]
+    }
+  },
+  "INVALID": {
+    "info": {},
+    "history": {
+      "dates": [],
+      "High": [],
+      "Low": [],
+      "Close": []
+    }
+  }
+}

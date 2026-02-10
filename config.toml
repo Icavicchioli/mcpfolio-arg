@@ -1,0 +1,6 @@
+[model]
+provider = "ollama"
+name = "llama3.2:3b"
+
+[server]
+transport = "stdio"

@@ -1,0 +1,255 @@
+# pyproject.toml - Modern Python project configuration
+# https://packaging.python.org/en/latest/specifications/pyproject-toml/
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-ollama-analyst"
+version = "0.2.0"
+description = "Local-first autonomous financial analyst using MCP and Ollama"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11,<3.13"
+authors = [
+    {name = "Quant-Ollama Contributors"}
+]
+keywords = [
+    "finance",
+    "ai",
+    "mcp",
+    "ollama",
+    "langgraph",
+    "financial-analysis",
+    "autonomous-agent"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+# Core dependencies with version constraints
+dependencies = [
+    "langgraph>=0.2.0,<0.3.0",
+    "mcp>=1.0.0,<2.0.0",
+    "fastmcp>=0.3.0,<0.4.0",
+    "langchain-mcp-adapters>=0.1.0,<0.2.0",
+    "langchain-ollama>=0.2.0,<0.3.0",
+    "langchain-core>=0.3.0,<0.4.0",
+    "yfinance>=0.2.40,<0.3.0",
+    "pandas>=2.0.0,<3.0.0",
+    "structlog>=24.0.0,<25.0.0",
+    "python-json-logger>=2.0.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+# Development dependencies
+dev = [
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.23.0,<0.24.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-mock>=3.12.0,<4.0.0",
+    "black>=24.0.0,<25.0.0",
+    "ruff>=0.6.0,<0.7.0",
+    "mypy>=1.8.0,<2.0.0",
+    "pre-commit>=3.6.0,<4.0.0",
+    "faker>=22.0.0,<23.0.0",
+    "freezegun>=1.4.0,<2.0.0",
+]
+
+# Testing only
+test = [
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.23.0,<0.24.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-mock>=3.12.0,<4.0.0",
+    "faker>=22.0.0,<23.0.0",
+    "freezegun>=1.4.0,<2.0.0",
+]
+
+# Type checking
+types = [
+    "mypy>=1.8.0,<2.0.0",
+    "types-requests>=2.31.0,<3.0.0",
+    "pandas-stubs>=2.0.0,<3.0.0",
+]
+
+# Documentation (future)
+docs = [
+    "mkdocs>=1.5.0,<2.0.0",
+    "mkdocs-material>=9.5.0,<10.0.0",
+    "mkdocstrings[python]>=0.24.0,<0.25.0",
+]
+
+# All extras combined
+all = [
+    "quant-ollama-analyst[dev,test,types,docs]",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/quant-ollama-analyst"
+Documentation = "https://github.com/yourusername/quant-ollama-analyst#readme"
+Repository = "https://github.com/yourusername/quant-ollama-analyst"
+Issues = "https://github.com/yourusername/quant-ollama-analyst/issues"
+
+[project.scripts]
+quant-ollama = "main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+namespaces = false
+
+# =============================================================================
+# Black - Code Formatter
+# =============================================================================
+[tool.black]
+line-length = 100
+target-version = ['py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | __pycache__
+)/
+'''
+
+# =============================================================================
+# Ruff - Fast Python Linter
+# =============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+    "PTH", # flake8-use-pathlib
+]
+
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "B904",  # Allow raising exceptions without from e
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = [
+    "ARG",  # Unused function args in tests
+    "S101", # Use of assert detected
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["server", "graph", "logging_config"]
+
+# =============================================================================
+# MyPy - Static Type Checker
+# =============================================================================
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_optional = true
+strict_equality = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+no_implicit_optional = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = false
+
+# =============================================================================
+# Pytest - Testing Framework
+# =============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--verbose",
+    "--tb=short",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-report=xml:coverage.xml",
+    "--cov-fail-under=70",
+    "-ra",
+]
+markers = [
+    "unit: Unit tests (fast, mocked dependencies)",
+    "integration: Integration tests (slower, real components)",
+    "slow: Slow tests (performance, load tests)",
+    "asyncio: Tests that use asyncio",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+# =============================================================================
+# Coverage - Code Coverage Configuration
+# =============================================================================
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "@overload",
+]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
