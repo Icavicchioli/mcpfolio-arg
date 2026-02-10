@@ -14,12 +14,62 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import contextlib
 
 from logging_config import get_logger
+from tools.wrappers import circuit_breaker, with_retry
 
 logger = get_logger(__name__)
 mcp = FastMCP("finance-server")
 
 
+def _get_trend_data_logic(ticker: str, period: str = "1mo") -> dict:
+    """Internal logic for fetching trend data."""
+    start_time = time.time()
+    ticker = ticker.strip().upper()
+    logger.info("get_trend_data_called", ticker=ticker, period=period)
+
+    try:
+        stock = yf.Ticker(ticker)
+        # Use 1d interval for trends
+        hist = stock.history(period=period, interval="1d")
+
+        if hist.empty:
+            return {"error": "No trend data available", "ticker": ticker, "error_type": "no_data"}
+
+        # Format for Chart.js: list of {date, price}
+        points = []
+        for dt, row in hist.iterrows():
+            points.append(
+                {
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "price": round(float(row["Close"]), 2),
+                    "volume": int(row["Volume"]),
+                }
+            )
+
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "get_trend_data_success",
+            ticker=ticker,
+            points=len(points),
+            duration_ms=round(duration_ms, 2),
+        )
+
+        return {"ticker": ticker, "period": period, "points": points, "count": len(points)}
+    except Exception as e:
+        logger.error("get_trend_data_failed", ticker=ticker, error=str(e), exc_info=True)
+        return {"error": str(e), "ticker": ticker, "error_type": "unknown"}
+
+
 @mcp.tool()
+@with_retry()
+@circuit_breaker()
+def get_trend_data(ticker: str, period: str = "1mo") -> dict:
+    """Fetches historical price trend data for a given ticker."""
+    return _get_trend_data_logic(ticker, period)
+
+
+@mcp.tool()
+@with_retry()
+@circuit_breaker()
 def get_market_snapshot(ticker: str) -> dict:
     """Fetches a market snapshot for a given stock ticker.
 
@@ -183,6 +233,8 @@ def get_market_snapshot(ticker: str) -> dict:
 
 
 @mcp.tool()
+@with_retry()
+@circuit_breaker()
 def get_sentiment_data(ticker: str, count: int = 5) -> dict:
     """Retrieves recent institutional analyst ratings for a ticker.
 
@@ -272,6 +324,8 @@ def get_sentiment_data(ticker: str, count: int = 5) -> dict:
 
 
 @mcp.tool()
+@with_retry()
+@circuit_breaker()
 def get_news(ticker: str, count: int = 10, date: str | None = None) -> dict:
     """Fetches recent news articles for a given stock ticker.
 
@@ -457,6 +511,8 @@ def get_news(ticker: str, count: int = 10, date: str | None = None) -> dict:
 
 
 @mcp.tool()
+@with_retry()
+@circuit_breaker()
 def get_fund_info(ticker: str) -> dict:
     """Retrieves information for a given fund ticker.
 

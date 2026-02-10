@@ -5,12 +5,18 @@ Provides REST API and WebSocket endpoints for financial analysis.
 """
 
 import asyncio
+import base64
+import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from src.config import get_settings
 from src.logging_config import get_logger, start_request
+from src.prompts import SYSTEM_PROMPT
 from src.startup import quick_startup, shutdown
 
 logger = get_logger(__name__)
@@ -33,6 +40,15 @@ class AnalysisRequest(BaseModel):
     include_sentiment: bool = Field(True, description="Include sentiment data")
     include_fundamentals: bool = Field(True, description="Include fundamental data")
     max_news: int = Field(5, description="Max news articles to fetch")
+
+
+class WatchlistItem(BaseModel):
+    """Watchlist item"""
+
+    ticker: str
+    added_at: datetime
+    last_price: float | None = None
+    last_updated: datetime | None = None
 
 
 class MarketSnapshotData(BaseModel):
@@ -64,13 +80,13 @@ class AnalysisResponse(BaseModel):
     risk_score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
 
 
-class WatchlistItem(BaseModel):
-    """Watchlist item"""
+class PortfolioItem(BaseModel):
+    """Portfolio holding item"""
 
     ticker: str
+    quantity: float = Field(..., gt=0)
+    cost_basis: float = Field(..., gt=0)
     added_at: datetime
-    last_price: float | None = None
-    last_updated: datetime | None = None
 
 
 class HealthResponse(BaseModel):
@@ -82,6 +98,92 @@ class HealthResponse(BaseModel):
     timestamp: str
 
 
+class SecurePortfolioManager:
+    """Manages encrypted portfolio data using AES-256 (Fernet)"""
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        self.portfolio_path = self.data_dir / "portfolio.enc"
+        self.salt_path = self.data_dir / "portfolio.salt"
+        self.key: bytes | None = None
+        self.fernet: Fernet | None = None
+
+    def _get_or_create_salt(self) -> bytes:
+        if self.salt_path.exists():
+            return self.salt_path.read_bytes()
+        salt = os.urandom(16)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.salt_path.write_bytes(salt)
+        return salt
+
+    def unlock(self, password: str) -> bool:
+        """Derive key from password and pre-flight check if data exists"""
+        try:
+            salt = self._get_or_create_salt()
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+            )
+            key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+            fernet = Fernet(key)
+
+            # Check if file exists, try to decrypt a dummy or first block if possible
+            # For simplicity, we just set it and let subsequent reads fail if wrong
+            self.key = key
+            self.fernet = fernet
+
+            if self.portfolio_path.exists():
+                # Verify key by trying to load
+                self.load()
+            return True
+        except Exception as e:
+            logger.error("portfolio_unlock_error", error=str(e))
+            self.key = None
+            self.fernet = None
+            return False
+
+    def lock(self):
+        """Clear key from memory"""
+        self.key = None
+        self.fernet = None
+
+    def is_unlocked(self) -> bool:
+        return self.fernet is not None
+
+    def wipe(self):
+        """Purge all portfolio data"""
+        if self.portfolio_path.exists():
+            self.portfolio_path.unlink()
+        if self.salt_path.exists():
+            self.salt_path.unlink()
+        self.lock()
+        logger.warning("portfolio_wiped")
+
+    def save(self, data: list[PortfolioItem]):
+        if not self.fernet:
+            raise HTTPException(status_code=401, detail="Portfolio locked")
+        raw_data = json.dumps([item.model_dump(mode="json") for item in data]).encode()
+        encrypted_data = self.fernet.encrypt(raw_data)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.portfolio_path.write_bytes(encrypted_data)
+
+    def load(self) -> list[PortfolioItem]:
+        if not self.fernet:
+            raise HTTPException(status_code=401, detail="Portfolio locked")
+        if not self.portfolio_path.exists():
+            return []
+        encrypted_data = self.portfolio_path.read_bytes()
+        try:
+            decrypted_data = self.fernet.decrypt(encrypted_data)
+            data = json.loads(decrypted_data)
+            return [PortfolioItem(**item) for item in data]
+        except Exception:
+            self.lock()  # Bad key?
+            raise HTTPException(status_code=401, detail="Invalid password or corrupted data")
+
+
 # Session Manager (single user, in-memory)
 class SessionManager:
     """Manage user session data (single user)"""
@@ -90,6 +192,7 @@ class SessionManager:
         self.data_dir = Path("data")
         self.watchlist_path = self.data_dir / "watchlist.json"
         self.watchlist: list[WatchlistItem] = []
+        self.portfolio_manager = SecurePortfolioManager(self.data_dir)
         self.analysis_history: list[AnalysisResponse] = []
         self.max_history = 50
 
@@ -102,8 +205,6 @@ class SessionManager:
         """Load watchlist from disk"""
         try:
             if self.watchlist_path.exists():
-                import json
-
                 with open(self.watchlist_path) as f:
                     data = json.load(f)
                     self.watchlist = [WatchlistItem(**item) for item in data]
@@ -114,8 +215,6 @@ class SessionManager:
     def _save_watchlist(self):
         """Save watchlist to disk"""
         try:
-            import json
-
             self.data_dir.mkdir(parents=True, exist_ok=True)
             with open(self.watchlist_path, "w") as f:
                 json.dump([w.model_dump(mode="json") for w in self.watchlist], f)
@@ -268,8 +367,6 @@ def parse_tool_result(result: Any) -> dict:
         if isinstance(result, list) and len(result) > 0:
             content = result[0]
             if isinstance(content, dict) and content.get("type") == "text":
-                import json
-
                 return cast(dict[Any, Any], json.loads(content.get("text", "{}")))
         elif isinstance(result, dict):
             return result
@@ -340,23 +437,41 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     volatility = market_data.get("volatility_52_week_pct", 0) / 100
     risk_score = min(volatility * 125, 100)  # Reduced from 200 to 125 for more realistic assessment
 
-    # Generate AI analysis (simplified for now - will integrate LangGraph later)
-    ai_analysis = f"""Analysis for {request.ticker}:
+    # --- Refactored AI Analysis ---
+    from langchain_ollama import ChatOllama
 
-Current Price: ${market_data.get('current_price', 0):.2f}
-Volume: {market_data.get('volume', 0):,}
-52-Week Volatility: {volatility * 100:.1f}%
+    ollama_config = settings.get_ollama_config()
+    # Ensure low temperature as requested
+    ollama_config["temperature"] = 0.1
+    llm = ChatOllama(**ollama_config)
 
-Risk Assessment: {'High' if risk_score > 70 else 'Medium' if risk_score > 30 else 'Low'} ({risk_score:.0f}/100)
-
-Based on current market conditions, this security shows {'elevated' if risk_score > 50 else 'moderate'} volatility.
+    # Construct the context for the LLM
+    context = f"""
+Market Data: {json.dumps(market_data, indent=2)}
+Sentiment: {json.dumps(sentiment_data, indent=2)}
+News: {json.dumps(news_data, indent=2)}
 """
 
-    if sentiment_data:
-        ai_analysis += f"\n\nAnalyst Sentiment: {len(sentiment_data)} recent ratings available."
+    # Portfolio context if unlocked
+    if session.portfolio_manager.is_unlocked():
+        holdings = session.portfolio_manager.load()
+        ticker_holding = next((h for h in holdings if h.ticker == request.ticker.upper()), None)
+        if ticker_holding:
+            context += f"\nUser Portfolio Holding: {ticker_holding.quantity} shares @ ${ticker_holding.cost_basis} cost basis."
 
-    if news_data:
-        ai_analysis += f"\nRecent News: {len(news_data)} articles found."
+    logger.info("ai_synthesis_started", ticker=request.ticker)
+    try:
+        llm_response = await llm.ainvoke(
+            [
+                ("system", SYSTEM_PROMPT),
+                ("user", f"Retrieved context for {request.ticker}:\n{context}"),
+            ]
+        )
+        ai_analysis = llm_response.content
+        logger.info("ai_synthesis_complete", ticker=request.ticker)
+    except Exception as e:
+        logger.error("ai_synthesis_failed", error=str(e))
+        ai_analysis = f"Error generating robust AI analysis: {str(e)}\n\nFallback: {ai_analysis}"
 
     response = AnalysisResponse(
         ticker=request.ticker.upper(),
@@ -417,6 +532,42 @@ async def set_active_model(model_request: dict):
     settings.ollama_model = model_name
     logger.info("active_model_changed", model=model_name)
     return {"status": "updated", "active": settings.ollama_model}
+
+
+@app.post("/api/portfolio/prices")
+async def get_portfolio_prices(request: dict):
+    """
+    Batch fetch current prices for a list of tickers.
+    Request body: {"tickers": ["AAPL", "MSFT", ...]}
+    """
+    tickers = request.get("tickers", [])
+    if not tickers:
+        return {"prices": {}}
+
+    from src.tools.lazy_loader import get_mcp_tools
+
+    tools = await get_mcp_tools()
+    tool_map = {tool.name: tool for tool in tools}
+    market_tool = tool_map.get("get_market_snapshot")
+
+    if not market_tool:
+        raise HTTPException(status_code=500, detail="Market tool unavailable")
+
+    results = {}
+    # Process in parallel
+    tasks = [market_tool.ainvoke({"ticker": t}) for t in tickers]
+    tool_outputs = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for ticker, output in zip(tickers, tool_outputs, strict=False):
+        if isinstance(output, Exception):
+            logger.error(f"Failed to fetch price for {ticker}: {output}")
+            continue
+
+        data = parse_tool_result(output)
+        if data and data.get("current_price"):
+            results[ticker.upper()] = data.get("current_price")
+
+    return {"prices": results}
 
 
 @app.post("/api/admin/shutdown")
@@ -554,35 +705,82 @@ async def get_watchlist():
     start_request()
     logger.info("watchlist_requested", count=len(session.watchlist))
 
-    return {
-        "watchlist": [
-            {
-                "ticker": item.ticker,
-                "added_at": item.added_at.isoformat(),
-                "last_price": item.last_price,
-                "last_updated": item.last_updated.isoformat() if item.last_updated else None,
-            }
-            for item in session.watchlist
-        ]
-    }
+    return {"watchlist": session.watchlist}
 
 
 @app.post("/api/watchlist/{ticker}")
 async def add_to_watchlist(ticker: str):
     """Add ticker to watchlist"""
-    start_request()
-    ticker = ticker.upper()
     session.add_to_watchlist(ticker)
-    return {"status": "added", "ticker": ticker}
+    return {"status": "added", "ticker": ticker.upper()}
 
 
 @app.delete("/api/watchlist/{ticker}")
 async def remove_from_watchlist(ticker: str):
     """Remove ticker from watchlist"""
-    start_request()
-    ticker = ticker.upper()
     session.remove_from_watchlist(ticker)
-    return {"status": "removed", "ticker": ticker}
+    return {"status": "removed", "ticker": ticker.upper()}
+
+
+# --- Portfolio Endpoints ---
+
+
+@app.post("/api/portfolio/unlock")
+async def unlock_portfolio(password: str = Body(..., embed=True)):
+    """Unlock the portfolio session"""
+    success = session.portfolio_manager.unlock(password)
+    if success:
+        return {"status": "unlocked"}
+    raise HTTPException(status_code=401, detail="Invalid password")
+
+
+@app.post("/api/portfolio/lock")
+async def lock_portfolio():
+    """Lock the portfolio session"""
+    session.portfolio_manager.lock()
+    return {"status": "locked"}
+
+
+@app.post("/api/portfolio/wipe")
+async def wipe_portfolio():
+    """Wipe all portfolio data"""
+    session.portfolio_manager.wipe()
+    return {"status": "wiped"}
+
+
+@app.get("/api/portfolio")
+async def get_portfolio():
+    """Get portfolio holdings"""
+    if not session.portfolio_manager.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+    holdings = session.portfolio_manager.load()
+    return {"holdings": holdings}
+
+
+@app.post("/api/portfolio")
+async def add_portfolio_item(item: PortfolioItem):
+    """Add or update portfolio holding"""
+    if not session.portfolio_manager.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+
+    holdings = session.portfolio_manager.load()
+    # Replace if exists, else append
+    holdings = [h for h in holdings if h.ticker != item.ticker.upper()]
+    holdings.append(item)
+    session.portfolio_manager.save(holdings)
+    return {"status": "saved", "ticker": item.ticker}
+
+
+@app.delete("/api/portfolio/{ticker}")
+async def remove_portfolio_item(ticker: str):
+    """Remove portfolio holding"""
+    if not session.portfolio_manager.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+
+    holdings = session.portfolio_manager.load()
+    holdings = [h for h in holdings if h.ticker != ticker.upper()]
+    session.portfolio_manager.save(holdings)
+    return {"status": "removed", "ticker": ticker.upper()}
 
 
 @app.get("/api/history")
