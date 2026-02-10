@@ -22,6 +22,10 @@ pandas==3.0.0
 structlog==25.5.0
 python-json-logger==4.0.0
 
+# Configuration
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
 # Required sub-dependencies (auto-installed but documented)
 # langsmith>=0.1.0  # LangChain telemetry
 # httpx>=0.25.0     # Async HTTP client

@@ -15,10 +15,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from config import get_settings
 from graph.edges import should_continue
 from logging_config import LogTimer, get_logger, start_request
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 
 # Ollama Launch Controller
@@ -55,20 +57,27 @@ class AgentState(TypedDict):
 
 
 def get_server_path() -> str:
-    """Get absolute path to the MCP finance server."""
-    # Get the directory containing this file
-    current_dir = Path(__file__).parent
-    # Navigate to server/finance.py
-    server_path = current_dir / "server" / "finance.py"
-    return str(server_path.absolute())
+    """
+    Get absolute path to the MCP finance server.
+
+    Uses settings.mcp_server_path if configured, otherwise auto-detects.
+    """
+    return settings.mcp_server_path
 
 
 async def create_agent():
     """Create and return the configured agent graph."""
-    logger.info("agent_creation_started")
+    logger.info("agent_creation_started", environment=settings.environment)
 
-    model = ChatOllama(model="llama3.2:3b")
-    logger.info("llm_initialized", model="llama3.2:3b")
+    # Initialize Ollama model with settings
+    ollama_config = settings.get_ollama_config()
+    model = ChatOllama(**ollama_config)
+    logger.info(
+        "llm_initialized",
+        model=settings.ollama_model,
+        host=settings.ollama_host,
+        temperature=settings.ollama_temperature,
+    )
 
     # Use absolute path for MCP server to work from any directory
     server_path = get_server_path()
@@ -79,11 +88,11 @@ async def create_agent():
             "finance": {
                 "command": "python",
                 "args": [server_path],
-                "transport": "stdio",
+                "transport": settings.mcp_transport,
             }
         }
     )
-    logger.info("mcp_client_created", transport="stdio")
+    logger.info("mcp_client_created", transport=settings.mcp_transport)
 
     tools = await client.get_tools()
     logger.info("mcp_tools_loaded", tool_count=len(tools), tool_names=[t.name for t in tools])

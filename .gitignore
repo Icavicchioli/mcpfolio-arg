@@ -81,9 +81,15 @@ dist/
 build/
 
 # Environment variables
+.env
 .env.local
-.env.production
+.env.production.local
 .env.staging
+.env.staging.local
+
+# Keep templates
+!.env.example
+!.env.production
 
 # Security
 *.pem

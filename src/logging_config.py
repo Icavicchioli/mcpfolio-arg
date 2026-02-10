@@ -53,15 +53,17 @@ def add_timestamp(logger, method_name, event_dict):
 
 
 def setup_logging(
-    log_level: str = "INFO",
-    log_file: str = "logs/quant-ollama.log",
-    max_bytes: int = 10_000_000,  # 10MB
-    backup_count: int = 5,
+    log_level: str | None = None,
+    log_file: str | None = None,
+    max_bytes: int | None = None,
+    backup_count: int | None = None,
     enable_console: bool = True,
-    json_logs: bool = True,
+    json_logs: bool | None = None,
 ) -> None:
     """
-    Configure structured logging for the application
+    Configure structured logging for the application.
+
+    If parameters are None, will attempt to load from settings.
 
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -71,6 +73,25 @@ def setup_logging(
         enable_console: Whether to log to console
         json_logs: Whether to use JSON format (vs. human-readable)
     """
+    # Load from settings if available and parameters not provided
+    try:
+        from config import get_settings
+
+        settings = get_settings()
+        log_config = settings.get_log_config()
+
+        log_level = log_level or log_config["log_level"]
+        log_file = log_file or log_config["log_file"]
+        max_bytes = max_bytes or log_config["max_bytes"]
+        backup_count = backup_count or log_config["backup_count"]
+        json_logs = json_logs if json_logs is not None else log_config["json_logs"]
+    except ImportError:
+        # Settings not available, use defaults
+        log_level = log_level or "INFO"
+        log_file = log_file or "logs/quant-ollama.log"
+        max_bytes = max_bytes or 10_000_000
+        backup_count = backup_count or 5
+        json_logs = json_logs if json_logs is not None else True
 
     # Create logs directory if it doesn't exist
     log_path = Path(log_file)
