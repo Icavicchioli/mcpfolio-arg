@@ -1,0 +1,593 @@
+"""
+FastAPI web application for Quant-Ollama.
+
+Provides REST API and WebSocket endpoints for financial analysis.
+"""
+
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field
+
+from src.config import get_settings
+from src.logging_config import get_logger, start_request
+from src.startup import quick_startup, shutdown
+
+logger = get_logger(__name__)
+settings = get_settings()
+
+
+# Pydantic Models
+class AnalysisRequest(BaseModel):
+    """Request for stock analysis"""
+
+    ticker: str = Field(..., description="Stock ticker symbol", min_length=1, max_length=10)
+    include_news: bool = Field(True, description="Include news analysis")
+    include_sentiment: bool = Field(True, description="Include sentiment data")
+    include_fundamentals: bool = Field(True, description="Include fundamental data")
+
+
+class MarketSnapshotData(BaseModel):
+    """Market snapshot data"""
+
+    price: float
+    volume: int
+    volatility_52week: float
+    change_percent: float = 0.0
+
+
+class SentimentRating(BaseModel):
+    """Analyst sentiment rating"""
+
+    firm: str
+    action: str
+    grade: str | None = None
+
+
+class AnalysisResponse(BaseModel):
+    """Complete analysis response"""
+
+    ticker: str
+    timestamp: datetime
+    market_snapshot: dict
+    sentiment: list[dict] | None = None
+    news: list[dict] | None = None
+    ai_analysis: str
+    risk_score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
+
+
+class WatchlistItem(BaseModel):
+    """Watchlist item"""
+
+    ticker: str
+    added_at: datetime
+    last_price: float | None = None
+    last_updated: datetime | None = None
+
+
+class HealthResponse(BaseModel):
+    """Health check response"""
+
+    status: str
+    ollama: dict
+    model: dict
+    timestamp: str
+
+
+# Session Manager (single user, in-memory)
+class SessionManager:
+    """Manage user session data (single user)"""
+
+    def __init__(self):
+        self.watchlist: list[WatchlistItem] = []
+        self.analysis_history: list[AnalysisResponse] = []
+        self.max_history = 50
+        logger.info("session_manager_initialized", max_history=self.max_history)
+
+    def add_to_watchlist(self, ticker: str, price: float | None = None):
+        """Add ticker to watchlist"""
+        ticker = ticker.upper()
+        # Check if already exists
+        if any(w.ticker == ticker for w in self.watchlist):
+            logger.debug("ticker_already_in_watchlist", ticker=ticker)
+            return
+
+        item = WatchlistItem(
+            ticker=ticker,
+            added_at=datetime.now(),
+            last_price=price,
+            last_updated=datetime.now() if price else None,
+        )
+        self.watchlist.append(item)
+        logger.info("ticker_added_to_watchlist", ticker=ticker)
+
+    def remove_from_watchlist(self, ticker: str):
+        """Remove ticker from watchlist"""
+        ticker = ticker.upper()
+        self.watchlist = [w for w in self.watchlist if w.ticker != ticker]
+        logger.info("ticker_removed_from_watchlist", ticker=ticker)
+
+    def update_watchlist_price(self, ticker: str, price: float):
+        """Update price for watchlist item"""
+        ticker = ticker.upper()
+        for item in self.watchlist:
+            if item.ticker == ticker:
+                item.last_price = price
+                item.last_updated = datetime.now()
+                logger.debug("watchlist_price_updated", ticker=ticker, price=price)
+                break
+
+    def add_analysis(self, analysis: AnalysisResponse):
+        """Add analysis to history"""
+        self.analysis_history.insert(0, analysis)
+        if len(self.analysis_history) > self.max_history:
+            removed = self.analysis_history.pop()
+            logger.debug("analysis_removed_from_history", ticker=removed.ticker)
+        logger.info("analysis_added_to_history", ticker=analysis.ticker)
+
+    def get_analysis(self, ticker: str) -> AnalysisResponse | None:
+        """Get most recent analysis for ticker"""
+        ticker = ticker.upper()
+        for analysis in self.analysis_history:
+            if analysis.ticker == ticker:
+                return analysis
+        return None
+
+
+# WebSocket Connection Manager
+class ConnectionManager:
+    """Manage WebSocket connections"""
+
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+        logger.info("connection_manager_initialized")
+
+    async def connect(self, websocket: WebSocket):
+        """Accept new WebSocket connection"""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info("websocket_connected", total_connections=len(self.active_connections))
+
+    def disconnect(self, websocket: WebSocket):
+        """Remove WebSocket connection"""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        logger.info("websocket_disconnected", total_connections=len(self.active_connections))
+
+    async def send_personal_message(self, message: dict, websocket: WebSocket):
+        """Send message to specific connection"""
+        await websocket.send_json(message)
+
+    async def broadcast(self, message: dict):
+        """Broadcast message to all connections"""
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error("broadcast_error", error=str(e))
+
+
+# Initialize managers
+session = SessionManager()
+ws_manager = ConnectionManager()
+
+
+# Lifespan context manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ARG001
+    """Lifespan context manager for startup/shutdown"""
+    # Startup
+    logger.info("application_starting")
+    startup_result = await quick_startup(skip_health_checks=False)
+    logger.info(
+        "application_started",
+        startup_time_ms=startup_result.startup_time_ms,
+        ready=startup_result.ready,
+    )
+
+    yield
+
+    # Shutdown
+    logger.info("application_shutting_down")
+    await shutdown()
+    logger.info("application_shutdown_complete")
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="Quant-Ollama API",
+    version="0.2.0",
+    description="Local-first financial analyst API",
+    lifespan=lifespan,
+)
+
+# CORS middleware for local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Helper function to run analysis
+async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
+    """
+    Run analysis on a ticker.
+
+    This orchestrates the full analysis workflow:
+    1. Get market snapshot
+    2. Get sentiment data (if requested)
+    3. Get news (if requested)
+    4. Run LLM analysis
+    5. Calculate risk score
+    """
+    from src.tools.lazy_loader import get_mcp_tools
+
+    # Get MCP tools (lazy loaded)
+    tools = await get_mcp_tools()
+    logger.info("analysis_started", ticker=request.ticker)
+
+    # Find the tools we need
+    tool_map = {tool.name: tool for tool in tools}
+
+    # Get market snapshot
+    market_snapshot_tool = tool_map.get("get_market_snapshot")
+    if not market_snapshot_tool:
+        raise HTTPException(status_code=500, detail="Market snapshot tool not available")
+
+    market_data = await asyncio.to_thread(market_snapshot_tool.fn, request.ticker)
+
+    if market_data.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to get market data: {market_data.get('message', 'Unknown error')}",
+        )
+
+    # Get sentiment data
+    sentiment_data = None
+    if request.include_sentiment:
+        sentiment_tool = tool_map.get("get_sentiment_data")
+        if sentiment_tool:
+            sentiment_result = await asyncio.to_thread(sentiment_tool.fn, request.ticker)
+            if not sentiment_result.get("error"):
+                sentiment_data = sentiment_result.get("ratings", [])
+
+    # Get news
+    news_data = None
+    if request.include_news:
+        news_tool = tool_map.get("get_news")
+        if news_tool:
+            news_result = await asyncio.to_thread(news_tool.fn, request.ticker)
+            if not news_result.get("error"):
+                news_data = news_result.get("articles", [])
+
+    # Calculate risk score based on volatility
+    volatility = market_data.get("volatility_52week", 0)
+    risk_score = min(volatility * 200, 100)  # Scale volatility to 0-100
+
+    # Generate AI analysis (simplified for now - will integrate LangGraph later)
+    ai_analysis = f"""Analysis for {request.ticker}:
+
+Current Price: ${market_data.get('price', 0):.2f}
+Volume: {market_data.get('volume', 0):,}
+52-Week Volatility: {volatility * 100:.1f}%
+
+Risk Assessment: {'High' if risk_score > 70 else 'Medium' if risk_score > 30 else 'Low'} ({risk_score:.0f}/100)
+
+Based on current market conditions, this security shows {'elevated' if risk_score > 50 else 'moderate'} volatility.
+"""
+
+    if sentiment_data:
+        ai_analysis += f"\n\nAnalyst Sentiment: {len(sentiment_data)} recent ratings available."
+
+    if news_data:
+        ai_analysis += f"\nRecent News: {len(news_data)} articles found."
+
+    response = AnalysisResponse(
+        ticker=request.ticker.upper(),
+        timestamp=datetime.now(),
+        market_snapshot=market_data,
+        sentiment=sentiment_data,
+        news=news_data,
+        ai_analysis=ai_analysis,
+        risk_score=risk_score,
+    )
+
+    # Add to session history
+    session.add_analysis(response)
+
+    # Update watchlist if ticker is in it
+    if any(w.ticker == request.ticker.upper() for w in session.watchlist):
+        session.update_watchlist_price(request.ticker, market_data.get("price", 0))
+
+    logger.info(
+        "analysis_complete",
+        ticker=request.ticker,
+        risk_score=risk_score,
+        has_sentiment=sentiment_data is not None,
+        has_news=news_data is not None,
+    )
+
+    return response
+
+
+# REST Endpoints
+@app.get("/")
+async def root():
+    """Serve a simple landing page"""
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Quant-Ollama API</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                max-width: 800px;
+                margin: 50px auto;
+                padding: 20px;
+            }
+            h1 { color: #2563eb; }
+            .endpoint { background: #f3f4f6; padding: 10px; margin: 10px 0; border-radius: 5px; }
+            code { background: #e5e7eb; padding: 2px 6px; border-radius: 3px; }
+        </style>
+    </head>
+    <body>
+        <h1>🤖 Quant-Ollama API</h1>
+        <p>Local-first financial analyst API v0.2.0</p>
+
+        <h2>Available Endpoints:</h2>
+        <div class="endpoint">
+            <strong>GET /api/health</strong> - Health check
+        </div>
+        <div class="endpoint">
+            <strong>POST /api/analyze</strong> - Analyze a ticker
+        </div>
+        <div class="endpoint">
+            <strong>GET /api/watchlist</strong> - Get watchlist
+        </div>
+        <div class="endpoint">
+            <strong>POST /api/watchlist/{ticker}</strong> - Add to watchlist
+        </div>
+        <div class="endpoint">
+            <strong>GET /api/history</strong> - Get analysis history
+        </div>
+        <div class="endpoint">
+            <strong>GET /docs</strong> - Interactive API documentation
+        </div>
+
+        <p>WebSocket: <code>ws://localhost:8000/ws/analysis</code></p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/api/health", response_model=HealthResponse)
+async def health_check():
+    """Quick health check"""
+    from src.health import HealthCheck
+
+    start_request()
+    logger.info("health_check_requested")
+
+    ollama_ok, ollama_msg = HealthCheck.check_ollama_running()
+    model_ok, model_msg = HealthCheck.check_model_downloaded(settings.ollama_model)
+
+    status = "healthy" if (ollama_ok and model_ok) else "degraded"
+
+    return HealthResponse(
+        status=status,
+        ollama={"ok": ollama_ok, "message": ollama_msg},
+        model={"ok": model_ok, "message": model_msg},
+        timestamp=datetime.now().isoformat(),
+    )
+
+
+@app.post("/api/analyze", response_model=AnalysisResponse)
+async def analyze_ticker(request: AnalysisRequest):
+    """
+    Run full analysis on a ticker.
+
+    This is the main endpoint that orchestrates all MCP tool calls
+    and LLM reasoning to produce a comprehensive analysis.
+    """
+    start_request()
+    logger.info("analyze_endpoint_called", ticker=request.ticker)
+
+    try:
+        result = await run_analysis_task(request)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "analysis_failed",
+            ticker=request.ticker,
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/watchlist")
+async def get_watchlist():
+    """Get user's watchlist"""
+    start_request()
+    logger.info("watchlist_requested", count=len(session.watchlist))
+
+    return {
+        "watchlist": [
+            {
+                "ticker": item.ticker,
+                "added_at": item.added_at.isoformat(),
+                "last_price": item.last_price,
+                "last_updated": item.last_updated.isoformat() if item.last_updated else None,
+            }
+            for item in session.watchlist
+        ]
+    }
+
+
+@app.post("/api/watchlist/{ticker}")
+async def add_to_watchlist(ticker: str):
+    """Add ticker to watchlist"""
+    start_request()
+    ticker = ticker.upper()
+    session.add_to_watchlist(ticker)
+    return {"status": "added", "ticker": ticker}
+
+
+@app.delete("/api/watchlist/{ticker}")
+async def remove_from_watchlist(ticker: str):
+    """Remove ticker from watchlist"""
+    start_request()
+    ticker = ticker.upper()
+    session.remove_from_watchlist(ticker)
+    return {"status": "removed", "ticker": ticker}
+
+
+@app.get("/api/history")
+async def get_analysis_history():
+    """Get recent analysis history"""
+    start_request()
+    logger.info("history_requested", count=len(session.analysis_history))
+
+    return {
+        "history": [
+            {
+                "ticker": analysis.ticker,
+                "timestamp": analysis.timestamp.isoformat(),
+                "risk_score": analysis.risk_score,
+                "price": analysis.market_snapshot.get("price"),
+            }
+            for analysis in session.analysis_history
+        ]
+    }
+
+
+@app.get("/api/export/{ticker}")
+async def export_analysis(ticker: str, format: str = "json"):
+    """
+    Export analysis to file.
+
+    Formats: json, markdown
+    """
+    start_request()
+    ticker = ticker.upper()
+    analysis = session.get_analysis(ticker)
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="No analysis found for ticker")
+
+    logger.info("export_requested", ticker=ticker, format=format)
+
+    if format == "json":
+        return JSONResponse(content=analysis.dict())
+
+    elif format == "markdown":
+        md = f"""# Analysis Report: {analysis.ticker}
+
+**Generated:** {analysis.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
+
+## Market Snapshot
+
+- **Price:** ${analysis.market_snapshot.get('price', 0):.2f}
+- **Volume:** {analysis.market_snapshot.get('volume', 0):,}
+- **Volatility:** {analysis.market_snapshot.get('volatility_52week', 0) * 100:.1f}%
+
+## Risk Score
+
+**{analysis.risk_score:.0f}/100** - {'High Risk' if analysis.risk_score > 70 else 'Medium Risk' if analysis.risk_score > 30 else 'Low Risk'}
+
+## AI Analysis
+
+{analysis.ai_analysis}
+
+---
+*Generated by Quant-Ollama v0.2.0*
+"""
+        return PlainTextResponse(content=md, media_type="text/markdown")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+
+
+# WebSocket endpoint
+@app.websocket("/ws/analysis")
+async def websocket_analysis(websocket: WebSocket):
+    """
+    WebSocket endpoint for streaming analysis updates.
+
+    Sends progress updates as the agent works.
+    """
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            ticker = data.get("ticker")
+
+            if not ticker:
+                await ws_manager.send_personal_message(
+                    {"type": "error", "message": "No ticker provided"}, websocket
+                )
+                continue
+
+            start_request()
+            logger.info("websocket_analysis_requested", ticker=ticker)
+
+            # Send status updates
+            await ws_manager.send_personal_message(
+                {"type": "status", "message": f"Starting analysis for {ticker}..."},
+                websocket,
+            )
+
+            try:
+                # Run analysis
+                request = AnalysisRequest(
+                    ticker=ticker,
+                    include_news=True,
+                    include_sentiment=True,
+                    include_fundamentals=True,
+                )
+                result = await run_analysis_task(request)
+
+                # Send complete result
+                await ws_manager.send_personal_message(
+                    {"type": "complete", "result": result.dict()}, websocket
+                )
+
+            except Exception as e:
+                logger.error("websocket_analysis_error", error=str(e))
+                await ws_manager.send_personal_message(
+                    {"type": "error", "message": str(e)}, websocket
+                )
+
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error("websocket_error", error=str(e), exc_info=True)
+        ws_manager.disconnect(websocket)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=8000,
+        log_level="info",
+    )

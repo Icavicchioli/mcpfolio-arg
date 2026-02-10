@@ -26,8 +26,19 @@ python-json-logger==4.0.0
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
 
+# Web UI
+fastapi==0.115.6
+uvicorn==0.34.0
+websockets==14.1
+
+# CLI Enhancement
+rich==13.9.4
+typer==0.15.1
+
+# HTTP Client
+httpx==0.28.1
+
 # Required sub-dependencies (auto-installed but documented)
 # langsmith>=0.1.0  # LangChain telemetry
-# httpx>=0.25.0     # Async HTTP client
 # pydantic>=2.0     # Data validation
 # typing-extensions>=4.12  # Type hints backport

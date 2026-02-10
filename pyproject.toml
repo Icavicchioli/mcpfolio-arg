@@ -47,11 +47,20 @@ dependencies = [
     "langchain-core>=0.3.0,<0.4.0",
     "yfinance>=0.2.40,<0.3.0",
     "pandas>=2.0.0,<3.0.0",
-    "structlog>=24.0.0,<25.0.0",
-    "python-json-logger>=2.0.0,<3.0.0",
+    "structlog>=24.0.0,<26.0.0",
+    "python-json-logger>=2.0.0,<5.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "pydantic-settings>=2.0.0,<3.0.0",
     "python-dotenv>=1.0.0,<2.0.0",
+    # Web UI
+    "fastapi>=0.100.0,<0.120.0",
+    "uvicorn>=0.30.0,<0.40.0",
+    "websockets>=14.0,<15.0",
+    # CLI Enhancement
+    "rich>=13.0.0,<14.0.0",
+    "typer>=0.15.0,<0.20.0",
+    # HTTP Client
+    "httpx>=0.28.0,<0.30.0",
 ]
 
 [project.optional-dependencies]
@@ -105,7 +114,12 @@ Repository = "https://github.com/yourusername/quant-ollama-analyst"
 Issues = "https://github.com/yourusername/quant-ollama-analyst/issues"
 
 [project.scripts]
-quant-ollama = "main:main"
+# Primary CLI (Rich + Typer)
+quant-ollama = "src.cli:app"
+# Web interface
+quant-ollama-web = "uvicorn:main"
+# Legacy CLI (original)
+quant-ollama-legacy = "src.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
