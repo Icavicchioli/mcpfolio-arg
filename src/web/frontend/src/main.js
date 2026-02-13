@@ -7,6 +7,7 @@ const {
   Brain,
   Newspaper,
   Bookmark,
+  BookmarkPlus,
   Activity,
   Power,
   Plus,
@@ -16,12 +17,13 @@ const {
   LayoutDashboard,
   Lock,
   ShieldLock,
-  RefreshCw
+  RefreshCw,
+  Check
 } = window.lucide;
 
 createIcons({
   icons: {
-    Search, Brain, Newspaper, Bookmark, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, RefreshCw
+    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, RefreshCw, Check
   }
 });
 
@@ -202,6 +204,19 @@ function updateUI(data) {
   document.getElementById('volume-display').textContent = (data.market_snapshot.volume || 0).toLocaleString();
   document.getElementById('high-display').textContent = `$${(data.market_snapshot.high_52_week || 0).toFixed(2)}`;
   document.getElementById('low-display').textContent = `$${(data.market_snapshot.low_52_week || 0).toFixed(2)}`;
+
+  // NEW metrics
+  if (document.getElementById('mktcap-display')) {
+    const mktcap = data.market_snapshot.market_cap;
+    document.getElementById('mktcap-display').textContent = mktcap ?
+      (mktcap >= 1e12 ? (mktcap / 1e12).toFixed(2) + 'T' : (mktcap / 1e9).toFixed(2) + 'B') : '---';
+  }
+  if (document.getElementById('pe-display')) {
+    document.getElementById('pe-display').textContent = data.market_snapshot.pe_ratio ? data.market_snapshot.pe_ratio.toFixed(2) : '---';
+  }
+  if (document.getElementById('div-display')) {
+    document.getElementById('div-display').textContent = data.market_snapshot.dividend_yield ? (data.market_snapshot.dividend_yield * 100).toFixed(2) + '%' : '0.00%';
+  }
 
   // 2. Risk Chart
   updateRiskChart(data.risk_score);

@@ -323,6 +323,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
         "application_started",
         startup_time_ms=startup_result.startup_time_ms,
         ready=startup_result.ready,
+        version="0.2.1-debug-fixes",
     )
 
     yield
@@ -600,7 +601,10 @@ async def root():
     """Serve the dashboard UI"""
     frontend_index = Path(__file__).parent / "frontend" / "dist" / "index.html"
     if frontend_index.exists():
-        return FileResponse(str(frontend_index))
+        return FileResponse(
+            str(frontend_index),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+        )
 
     # Fallback to API lander if frontend not built
     html_content = """
