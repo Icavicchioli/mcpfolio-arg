@@ -433,10 +433,52 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
             if not news_result.get("error"):
                 news_data = news_result.get("news", [])
 
-    # Calculate risk score based on volatility
-    # Use a more balanced scale: 20% vol -> 25 score, 50% vol -> 60 score, 80% vol -> 100 score
+    # Multi-factor risk score: volatility (40%), analyst sentiment (30%), P/E (30%)
     volatility = market_data.get("volatility_52_week_pct", 0) / 100
-    risk_score = min(volatility * 125, 100)  # Reduced from 200 to 125 for more realistic assessment
+    vol_score = min(volatility * 100, 100)  # 0-100: 50% vol -> 50 score
+
+    # Analyst sentiment component: more buy ratings = lower risk
+    sentiment_score = 50.0  # neutral default when no data
+    if sentiment_data:
+        buy_count = sum(
+            1
+            for r in sentiment_data
+            if any(
+                g in (r.get("grade") or r.get("action") or "").upper()
+                for g in ("BUY", "OVERWEIGHT", "OUTPERFORM")
+            )
+        )
+        sell_count = sum(
+            1
+            for r in sentiment_data
+            if any(
+                g in (r.get("grade") or r.get("action") or "").upper()
+                for g in ("SELL", "UNDERWEIGHT", "UNDERPERFORM")
+            )
+        )
+        total = len(sentiment_data)
+        if total > 0:
+            # Ranges from 0 (all buy) to 100 (all sell)
+            sentiment_score = max(0, min(100, 50 - (buy_count - sell_count) / total * 50))
+
+    # P/E ratio component: extreme values raise risk, moderate is neutral
+    pe_ratio = market_data.get("pe_ratio") or market_data.get("trailing_pe")
+    pe_score = 50.0  # neutral default
+    if pe_ratio is not None and pe_ratio > 0:
+        if pe_ratio < 10:
+            pe_score = 60  # very low P/E can signal value trap
+        elif pe_ratio < 25:
+            pe_score = 20  # healthy range
+        elif pe_ratio < 40:
+            pe_score = 40  # growth premium, moderate risk
+        elif pe_ratio < 60:
+            pe_score = 65  # elevated
+        else:
+            pe_score = 85  # extreme valuation
+    elif pe_ratio is not None and pe_ratio < 0:
+        pe_score = 80  # negative earnings
+
+    risk_score = vol_score * 0.4 + sentiment_score * 0.3 + pe_score * 0.3
 
     # --- Refactored AI Analysis ---
     from langchain_ollama import ChatOllama
@@ -446,12 +488,58 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     ollama_config["temperature"] = 0.1
     llm = ChatOllama(**ollama_config)
 
-    # Construct the context for the LLM
-    context = f"""
-Market Data: {json.dumps(market_data, indent=2)}
-Sentiment: {json.dumps(sentiment_data, indent=2)}
-News: {json.dumps(news_data, indent=2)}
+    # Construct a structured summary for the LLM (avoids dumping raw JSON)
+    price = market_data.get("current_price", "N/A")
+    mkt_cap = market_data.get("market_cap")
+    mkt_cap_str = (
+        f"${mkt_cap / 1e9:.1f}B"
+        if mkt_cap and mkt_cap > 1e9
+        else f"${mkt_cap / 1e6:.0f}M" if mkt_cap else "N/A"
+    )
+    pe_display = pe_ratio if pe_ratio is not None else "N/A"
+    div_yield = market_data.get("dividend_yield")
+    div_str = f"{div_yield * 100:.2f}%" if div_yield else "None"
+    vol_pct = market_data.get("volatility_52_week_pct", 0)
+    week_high = market_data.get("fifty_two_week_high", "N/A")
+    week_low = market_data.get("fifty_two_week_low", "N/A")
+    change_pct = market_data.get("change_percent", 0)
+    eps = market_data.get("eps") or market_data.get("trailing_eps") or "N/A"
+    rev = market_data.get("revenue")
+    rev_str = f"${rev / 1e9:.1f}B" if rev and rev > 1e9 else f"${rev / 1e6:.0f}M" if rev else "N/A"
+
+    context = f"""MARKET DATA:
+- Price: ${price} ({change_pct:+.2f}% today)
+- Market Cap: {mkt_cap_str}
+- P/E Ratio: {pe_display}
+- EPS: {eps}
+- Revenue: {rev_str}
+- Dividend Yield: {div_str}
+- 52-Week Range: ${week_low} – ${week_high} (volatility: {vol_pct:.1f}%)
 """
+
+    if sentiment_data:
+        ratings_summary = []
+        for r in sentiment_data:
+            firm = r.get("firm", "Unknown")
+            grade = r.get("grade") or r.get("action") or "N/A"
+            ratings_summary.append(f"  - {firm}: {grade}")
+        context += (
+            f"\nANALYST RATINGS ({len(sentiment_data)} recent):\n"
+            + "\n".join(ratings_summary)
+            + "\n"
+        )
+    else:
+        context += "\nANALYST RATINGS: No data available.\n"
+
+    if news_data:
+        news_lines = []
+        for n in news_data[:5]:
+            title = n.get("title", "")
+            source = n.get("publisher") or n.get("source") or ""
+            news_lines.append(f"  - {title}" + (f" ({source})" if source else ""))
+        context += "\nRECENT NEWS:\n" + "\n".join(news_lines) + "\n"
+    else:
+        context += "\nRECENT NEWS: No data available.\n"
 
     # Portfolio context if unlocked
     if session.portfolio_manager.is_unlocked():
