@@ -17,13 +17,13 @@ const {
   LayoutDashboard,
   Lock,
   ShieldLock,
-  RefreshCw,
+  PieChart,
   Check
 } = window.lucide;
 
 createIcons({
   icons: {
-    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, RefreshCw, Check
+    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check
   }
 });
 
@@ -33,7 +33,7 @@ const state = {
     risk: null,
     sentiment: null,
     snapshotTrend: null,
-    portfolioTrend: null
+    portfolioPie: null
   },
   watchlist: [],
   portfolio: [],
@@ -42,7 +42,8 @@ const state = {
   activePrice: null,
   isUnlocked: false,
   activeTab: 'dashboard',
-  marketData: {} // Cache for lightweight price data
+  marketData: {},     // Cache for lightweight price data
+  currentNews: []     // Full news cache — sliced on render
 };
 
 // --- Initialization ---
@@ -76,11 +77,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('wipe-portfolio-btn-main').addEventListener('click', handleWipe);
   document.getElementById('portfolio-form').addEventListener('submit', handleSaveHolding);
   document.getElementById('cancel-port').addEventListener('click', () => document.getElementById('portfolio-modal').classList.add('hidden'));
-  document.getElementById('refresh-chart-btn').addEventListener('click', updatePortfolio);
 
-  // Portfolio Input Logic
-  document.getElementById('port-ticker-input').addEventListener('blur', handleTickerBlur);
-  document.getElementById('port-qty').addEventListener('input', calculateCostBasis);
+  // Portfolio Input Logic — auto-calculate total cost as qty × cost-per-share
+  document.getElementById('port-qty').addEventListener('input', calculateTotalCost);
+  document.getElementById('port-cost-per-share').addEventListener('input', calculateTotalCost);
+
+  // Re-render news when count changes (no re-fetch needed — we cache the full list)
+  document.getElementById('news-count').addEventListener('change', () => {
+    renderNews(state.currentNews);
+  });
 
   // Poll status every 10s
   setInterval(checkStatus, 10000);
@@ -164,7 +169,9 @@ async function handleAnalyze() {
   state.activeTicker = ticker;
   setLoading(true);
 
-  const maxNews = parseInt(document.getElementById('news-count').value) || 5;
+  // Always fetch the input's max so changing count after analysis works from cache
+  const newsCountEl = document.getElementById('news-count');
+  const maxNews = parseInt(newsCountEl.max) || 20;
 
   try {
     const res = await fetch('/api/analyze', {
@@ -237,8 +244,9 @@ function updateUI(data) {
     analysisEl.innerHTML = '<p class="placeholder">Analysis unavailable.</p>';
   }
 
-  // 5. News List
-  renderNews(data.news);
+  // 5. News List — cache full result so count input works without re-fetching
+  state.currentNews = data.news || [];
+  renderNews(state.currentNews);
 
   const inWatchlist = state.watchlist.some(w => w.ticker === data.ticker);
 
@@ -253,13 +261,7 @@ function updateUI(data) {
     watchBtn.classList.remove('active');
   }
 
-  const portBtn = document.getElementById('add-portfolio-btn');
-  portBtn.style.display = 'inline-flex';
-  const isInPortfolio = state.portfolio.some(p => p.ticker === data.ticker);
-  portBtn.innerHTML = isInPortfolio ? '<i data-lucide="briefcase"></i>' : '<i data-lucide="plus-circle"></i>';
-  portBtn.title = isInPortfolio ? 'In Portfolio' : 'Add to Portfolio';
-
-  createIcons({ icons: { BookmarkPlus, Check, Briefcase, PlusCircle } });
+  createIcons({ icons: { BookmarkPlus, Check } });
 }
 
 function renderWatchlist() {
@@ -290,7 +292,10 @@ function renderNews(news) {
     return;
   }
 
-  container.innerHTML = news.map(item => `
+  const count = parseInt(document.getElementById('news-count').value) || 5;
+  const visible = news.slice(0, count);
+
+  container.innerHTML = visible.map(item => `
     <a href="${item.link}" target="_blank" class="news-item">
       <div class="news-meta">
         <span>${item.publisher}</span>
@@ -300,6 +305,7 @@ function renderNews(news) {
     </a>
   `).join('');
 }
+
 
 function setLoading(isLoading) {
   const spin = document.getElementById('loader-spinner');
@@ -340,6 +346,17 @@ function switchTab(tab) {
   // Toggle Sections
   document.getElementById('dashboard-section').classList.toggle('hidden', tab !== 'dashboard');
   document.getElementById('portfolio-section').classList.toggle('hidden', tab !== 'portfolio');
+
+  // Watchlist sidebar: only visible on dashboard
+  const watchlistPanel = document.getElementById('watchlist-panel');
+  const mainEl = document.querySelector('main');
+  if (tab === 'dashboard') {
+    watchlistPanel.classList.remove('hidden');
+    mainEl.classList.remove('no-sidebar');
+  } else {
+    watchlistPanel.classList.add('hidden');
+    mainEl.classList.add('no-sidebar');
+  }
 
   if (tab === 'portfolio') {
     updatePortfolioStateUI();
@@ -444,7 +461,7 @@ async function updatePortfolio() {
     await fetchPortfolioPrices();
 
     renderPortfolio();
-    updatePortfolioTrendChart();
+    updatePortfolioPieChart();
   } catch (err) {
     console.error('Failed to update portfolio:', err);
   }
@@ -478,64 +495,97 @@ async function fetchPortfolioPrices() {
 function renderPortfolio() {
   const body = document.getElementById('portfolio-body');
   if (state.portfolio.length === 0) {
-    body.innerHTML = '<tr><td colspan="7" class="placeholder">No holdings found</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">No holdings yet — click Add Position to get started.</td></tr>';
     document.getElementById('total-value').textContent = '$0.00';
     document.getElementById('total-pl').textContent = '$0.00 (0.00%)';
     document.getElementById('total-pl').className = 'neutral';
+    document.getElementById('portfolio-breakdown').innerHTML = '<p class="placeholder" style="margin-top: 2rem;">No holdings yet.</p>';
     return;
   }
 
   let totalValue = 0;
   let totalCost = 0;
 
-  body.innerHTML = state.portfolio.map(item => {
-    // Priority: 1. Live Market Data, 2. History (if recently viewed), 3. Cost Basis (fallback)
+  const rows = state.portfolio.map(item => {
+    // cost_basis is per-share. Resolve current price from cache > history > fallback to cost_basis.
     let currentPrice = item.cost_basis;
-
-    if (state.marketData[item.ticker] && state.marketData[item.ticker].current_price) {
+    if (state.marketData[item.ticker]?.current_price) {
       currentPrice = state.marketData[item.ticker].current_price;
     } else {
       const hist = state.history.find(h => h.ticker === item.ticker);
       if (hist) currentPrice = hist.market_snapshot.current_price;
     }
 
+    const totalItemCost = item.quantity * item.cost_basis;
     const value = item.quantity * currentPrice;
-    const pl = value - (item.quantity * item.cost_basis);
-    const plPercent = (item.quantity * item.cost_basis) > 0
-      ? (pl / (item.quantity * item.cost_basis)) * 100
-      : 0;
+    const pl = value - totalItemCost;
+    const plPercent = totalItemCost > 0 ? (pl / totalItemCost) * 100 : 0;
 
     totalValue += value;
-    totalCost += (item.quantity * item.cost_basis);
+    totalCost += totalItemCost;
+
+    const plClass = pl >= 0 ? 'plus' : 'minus';
+    const plSign = pl >= 0 ? '+' : '';
 
     return `
       <tr>
-        <td class="watchlist-ticker" onclick="selectTicker('${item.ticker}')">${item.ticker}</td>
-        <td>$${currentPrice.toFixed(2)}</td>
-        <td>${item.quantity}</td>
+        <td><span class="portfolio-ticker" onclick="selectTicker('${item.ticker}')">${item.ticker}</span></td>
+        <td>${item.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
         <td>$${item.cost_basis.toFixed(2)}</td>
-        <td>$${value.toFixed(2)}</td>
-        <td class="${pl >= 0 ? 'plus' : 'minus'}">
-          $${pl.toFixed(2)} (${plPercent.toFixed(2)}%)
-        </td>
+        <td>$${currentPrice.toFixed(2)}</td>
+        <td>$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td class="${plClass}">${plSign}$${Math.abs(pl).toFixed(2)}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${plPercent.toFixed(2)}%</span></td>
         <td>
-          <button class="icon-btn danger" onclick="handleRemoveHolding('${item.ticker}')">
+          <button class="icon-btn small danger-icon" onclick="handleRemoveHolding('${item.ticker}')" title="Remove">
             <i data-lucide="trash-2"></i>
           </button>
         </td>
       </tr>
     `;
-  }).join('');
+  });
+
+  body.innerHTML = rows.join('');
 
   const totalPL = totalValue - totalCost;
   const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
+  const plSign = totalPL >= 0 ? '+' : '';
 
-  document.getElementById('total-value').textContent = `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  document.getElementById('total-value').textContent = `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const plEl = document.getElementById('total-pl');
-  plEl.textContent = `$${totalPL.toFixed(2)} (${totalPLPct.toFixed(2)}%)`;
+  plEl.textContent = `${plSign}$${Math.abs(totalPL).toFixed(2)} (${plSign}${totalPLPct.toFixed(2)}%)`;
   plEl.className = totalPL >= 0 ? 'plus' : 'minus';
 
+  // Render per-holding breakdown sidebar
+  renderPortfolioBreakdown();
+
   createIcons({ icons: { Trash2 } });
+}
+
+function renderPortfolioBreakdown() {
+  const container = document.getElementById('portfolio-breakdown');
+  if (!container) return;
+
+  const items = state.portfolio.map(item => {
+    let currentPrice = item.cost_basis;
+    if (state.marketData[item.ticker]?.current_price) {
+      currentPrice = state.marketData[item.ticker].current_price;
+    }
+    const value = item.quantity * currentPrice;
+    const pl = value - (item.quantity * item.cost_basis);
+    const plClass = pl >= 0 ? 'plus' : 'minus';
+    const plSign = pl >= 0 ? '+' : '';
+    return `
+      <div class="breakdown-item">
+        <div class="breakdown-ticker">${item.ticker}</div>
+        <div class="breakdown-detail">
+          <span>${item.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} shares</span>
+          <span class="${plClass}">${plSign}$${Math.abs(pl).toFixed(2)}</span>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = items.join('');
 }
 
 function openPortfolioModal() {
@@ -546,64 +596,23 @@ function openPortfolioModal() {
 
   // Clear fields for new entry
   document.getElementById('port-ticker-input').value = '';
-  document.getElementById('port-current-price').value = '';
   document.getElementById('port-qty').value = '';
-  document.getElementById('port-cost').value = '';
+  document.getElementById('port-cost-per-share').value = '';
+  document.getElementById('port-total-cost').value = '';
 
-  document.getElementById('port-modal-title').textContent = 'Add New Position';
   document.getElementById('portfolio-modal').classList.remove('hidden');
-  // Focus on ticker input
+  createIcons({ icons: { PlusCircle } });
   setTimeout(() => document.getElementById('port-ticker-input').focus(), 100);
 }
 
-async function handleTickerBlur(e) {
-  const ticker = e.target.value.trim().toUpperCase();
-  if (!ticker) return;
+function calculateTotalCost() {
+  const qty = parseFloat(document.getElementById('port-qty').value);
+  const costPerShare = parseFloat(document.getElementById('port-cost-per-share').value);
 
-  // Try to find price in history first
-  let price = 0;
-  const hist = state.history.find(h => h.ticker === ticker);
-  if (hist) {
-    price = hist.market_snapshot.current_price;
+  if (!isNaN(qty) && !isNaN(costPerShare) && qty > 0 && costPerShare > 0) {
+    document.getElementById('port-total-cost').value = (qty * costPerShare).toFixed(2);
   } else {
-    // Attempt to fetch fresh data for the ticker
-    try {
-      document.getElementById('port-current-price').placeholder = 'Fetching...';
-      const res = await fetch(`/api/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: ticker, model: 'llama3.2:3b' })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // The API returns { ticker, market_snapshot, ... }
-        if (data.market_snapshot && data.market_snapshot.current_price) {
-          price = data.market_snapshot.current_price;
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching price:', err);
-    } finally {
-      document.getElementById('port-current-price').placeholder = '';
-    }
-  }
-
-  if (price > 0) {
-    document.getElementById('port-current-price').value = price.toFixed(2);
-    calculateCostBasis();
-  }
-}
-
-function calculateCostBasis() {
-  const priceVal = document.getElementById('port-current-price').value;
-  const qtyVal = document.getElementById('port-qty').value;
-
-  const price = parseFloat(priceVal);
-  const qty = parseFloat(qtyVal);
-
-  if (!isNaN(price) && !isNaN(qty) && price > 0 && qty > 0) {
-    const total = price * qty;
-    document.getElementById('port-cost').value = total.toFixed(2);
+    document.getElementById('port-total-cost').value = '';
   }
 }
 
@@ -613,7 +622,13 @@ async function handleSaveHolding(e) {
   if (!ticker) return;
 
   const quantity = parseFloat(document.getElementById('port-qty').value);
-  const cost_basis = parseFloat(document.getElementById('port-cost').value);
+  // cost_basis stored as per-share cost
+  const cost_basis = parseFloat(document.getElementById('port-cost-per-share').value);
+
+  if (isNaN(quantity) || isNaN(cost_basis) || quantity <= 0 || cost_basis <= 0) {
+    alert('Please enter valid shares and cost per share.');
+    return;
+  }
 
   try {
     const res = await fetch('/api/portfolio', {
@@ -623,7 +638,10 @@ async function handleSaveHolding(e) {
     });
     if (res.ok) {
       document.getElementById('portfolio-modal').classList.add('hidden');
-      updatePortfolioStateUI();
+      await updatePortfolio();
+    } else {
+      const err = await res.json();
+      alert(err.detail || 'Failed to save position.');
     }
   } catch (err) {
     console.error('Failed to save holding:', err);
@@ -635,11 +653,6 @@ window.handleRemoveHolding = async (ticker) => {
   try {
     await fetch(`/api/portfolio/${ticker}`, { method: 'DELETE' });
     await updatePortfolio();
-    if (state.activeTicker === ticker.toUpperCase()) {
-      const portBtn = document.getElementById('add-portfolio-btn');
-      portBtn.innerHTML = '<i data-lucide="plus-circle"></i>';
-      createIcons({ icons: { PlusCircle } });
-    }
   } catch (err) {
     console.error('Failed to remove holding:', err);
   }
@@ -745,21 +758,7 @@ function initCharts() {
     }
   });
 
-  // Portfolio Trend
-  const portCtx = document.getElementById('portfolio-trend-chart').getContext('2d');
-  state.charts.portfolioTrend = new Chart(portCtx, {
-    type: 'line',
-    data: { labels: [], datasets: [{ label: 'Total Value', data: [], borderColor: '#8b5cf6', tension: 0.4 }] },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
-      }
-    }
-  });
+  // Portfolio pie chart is initialized lazily on first portfolio open (canvas is hidden at load)
 }
 
 function updateRiskChart(score) {
@@ -796,24 +795,63 @@ function updateSnapshotTrendChart(points) {
   state.charts.snapshotTrend.update();
 }
 
-async function updatePortfolioTrendChart() {
-  // Aggregated historical portfolio value chart (requires fetching multiple trends)
-  // For simplicity now, we show the trend of the first holding as a demo,
-  // or a placeholder if multiple.
-  if (state.portfolio.length === 0) return;
+function updatePortfolioPieChart() {
+  if (!state.portfolio.length) return;
 
-  const mainTicker = state.portfolio[0].ticker;
-  try {
-    const res = await fetch(`/api/mcp/finance-server/get_trend_data?ticker=${mainTicker}&period=1mo`);
-    const data = await res.json();
-    if (data.points) {
-      state.charts.portfolioTrend.data.labels = data.points.map(p => p.date);
-      state.charts.portfolioTrend.data.datasets[0].data = data.points.map(p => p.price * state.portfolio[0].quantity);
-      state.charts.portfolioTrend.update();
-    }
-  } catch (err) {
-    console.error('Failed to update portfolio trend:', err);
+  // Lazy-initialize the pie chart on first call (canvas was hidden at page load)
+  if (!state.charts.portfolioPie) {
+    const pieCtx = document.getElementById('portfolio-pie-chart').getContext('2d');
+    state.charts.portfolioPie = new Chart(pieCtx, {
+      type: 'doughnut',
+      data: {
+        labels: [],
+        datasets: [{
+          data: [],
+          backgroundColor: [],
+          borderWidth: 2,
+          borderColor: 'rgba(12,15,23,0.8)'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'right',
+            labels: { color: '#94a3b8', padding: 14, font: { size: 12 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.label}: ${ctx.parsed.toFixed(1)}%`
+            }
+          }
+        }
+      }
+    });
   }
+
+  const PIE_COLORS = [
+    '#3b82f6', '#8b5cf6', '#22c55e', '#f59e0b',
+    '#ef4444', '#06b6d4', '#ec4899', '#f97316',
+    '#a855f7', '#14b8a6'
+  ];
+
+  let totalValue = 0;
+  const values = state.portfolio.map(item => {
+    const price = state.marketData[item.ticker]?.current_price || item.cost_basis;
+    const val = item.quantity * price;
+    totalValue += val;
+    return { ticker: item.ticker, value: val };
+  });
+
+  const labels = values.map(v => v.ticker);
+  const data = values.map(v => totalValue > 0 ? (v.value / totalValue) * 100 : 0);
+
+  state.charts.portfolioPie.data.labels = labels;
+  state.charts.portfolioPie.data.datasets[0].data = data;
+  state.charts.portfolioPie.data.datasets[0].backgroundColor = labels.map((_, i) => PIE_COLORS[i % PIE_COLORS.length]);
+  state.charts.portfolioPie.update();
 }
 
 function getRiskColor(score) {
