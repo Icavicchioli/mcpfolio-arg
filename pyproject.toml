@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-ollama-analyst"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first autonomous financial analyst using MCP and Ollama"
 readme = "README.md"
 license = {text = "MIT"}
@@ -108,10 +108,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/quant-ollama-analyst"
-Documentation = "https://github.com/yourusername/quant-ollama-analyst#readme"
-Repository = "https://github.com/yourusername/quant-ollama-analyst"
-Issues = "https://github.com/yourusername/quant-ollama-analyst/issues"
+Homepage = "https://github.com/adkarp/quant-ollama-analyst"
+Documentation = "https://github.com/adkarp/quant-ollama-analyst#readme"
+Repository = "https://github.com/adkarp/quant-ollama-analyst"
+Issues = "https://github.com/adkarp/quant-ollama-analyst/issues"
 
 [project.scripts]
 # Primary CLI (Rich + Typer)

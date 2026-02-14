@@ -9,7 +9,7 @@ Provides quick, non-blocking health checks for:
 - Configuration validity
 """
 
-import subprocess
+import subprocess  # nosec
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,7 +58,7 @@ class HealthCheck:
                 text=True,
                 timeout=5,
                 check=False,
-            )
+            )  # nosec
             if result.returncode == 0:
                 return True, result.stdout.strip()
             return False, "Ollama command failed"
@@ -73,7 +73,9 @@ class HealthCheck:
             Tuple of (passed, message)
         """
         try:
-            result = subprocess.run(["ollama", "list"], capture_output=True, timeout=5, check=False)
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, timeout=5, check=False
+            )  # nosec
             if result.returncode == 0:
                 return True, "Server running"
             return False, "Server not responding"
@@ -97,7 +99,7 @@ class HealthCheck:
                 text=True,
                 timeout=5,
                 check=False,
-            )
+            )  # nosec
             if result.returncode == 0 and model in result.stdout:
                 return True, f"{model} available"
             return False, f"Run: ollama pull {model}"
