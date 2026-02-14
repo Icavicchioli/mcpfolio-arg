@@ -44,7 +44,7 @@ Your `pyproject.toml` or `requirements.txt` must include these core tiers:
 
 ## 3. Architecture Requirements
 
-### 3.1 The MCP Data Server (`finance_bridge.py`)
+### 3.1 The MCP Data Server (`src/server/finance.py`)
 
 The server must implement a **Standard Input/Output (stdio)** transport layer. It should expose the following tool schemas:
 
