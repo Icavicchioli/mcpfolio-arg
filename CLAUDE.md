@@ -19,8 +19,11 @@ Quant-Ollama is a local-first, autonomous financial analyst that uses MCP (Model
 
 ### MCP Data Server (`src/server/finance.py`)
 Uses stdio transport layer. Exposes:
-- `get_market_snapshot(ticker)`: Current price, volume, 52-week volatility
-- `get_sentiment_data(ticker)`: Last 5 institutional analyst ratings
+- `get_market_snapshot(ticker)`: Current price, volume, 52-week volatility, fundamentals
+- `get_sentiment_data(ticker)`: Institutional analyst ratings
+- `get_news(ticker, count)`: Recent news articles
+- `get_trend_data(ticker, period)`: Historical price data for charts
+- `get_fund_info(ticker)`: ETF/Mutual Fund holdings and sectors
 
 ### LangGraph State Machine (`src/graph/`)
 ReAct pattern with persistent state containing:
