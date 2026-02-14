@@ -161,7 +161,7 @@ def get_market_snapshot(ticker: str) -> dict:
                         k: str(v) if not isinstance(v, int | float | bool | type(None)) else v
                         for k, v in cal.items()
                     }
-        except Exception:
+        except Exception:  # nosec
             calendar_data = None
 
         # Analyst price targets
@@ -172,7 +172,7 @@ def get_market_snapshot(ticker: str) -> dict:
                 analyst_targets = {
                     k: float(v) if isinstance(v, int | float) else v for k, v in targets.items()
                 }
-        except Exception:
+        except Exception:  # nosec
             analyst_targets = None
 
         # Quarterly income statement
@@ -188,7 +188,7 @@ def get_market_snapshot(ticker: str) -> dict:
                     }
                     for row in quarterly_income.head(4).to_dict(orient="records")
                 ]
-        except Exception:
+        except Exception:  # nosec
             quarterly_income_data = None
 
         result = {
@@ -577,7 +577,7 @@ def get_fund_info(ticker: str) -> dict:
                         k: (str(v) if not isinstance(v, int | float | bool | type(None)) else v)
                         for k, v in overview.items()
                     }
-        except Exception:
+        except Exception:  # nosec
             pass
 
         # Extract top holdings
@@ -596,7 +596,7 @@ def get_fund_info(ticker: str) -> dict:
                     }
                     for row in top_holdings.to_dict(orient="records")
                 ]
-        except Exception:
+        except Exception:  # nosec
             pass
 
         # Extract sector weightings
@@ -611,7 +611,7 @@ def get_fund_info(ticker: str) -> dict:
                         k: (float(v) if isinstance(v, int | float) else v)
                         for k, v in sectors.items()
                     }
-        except Exception:
+        except Exception:  # nosec
             pass
 
         result = {

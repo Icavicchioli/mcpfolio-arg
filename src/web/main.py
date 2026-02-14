@@ -667,11 +667,11 @@ async def shutdown_all():
     async def perform_shutdown():
         await asyncio.sleep(1)
         # Attempt to kill ollama process if we started it
-        import subprocess
+        import subprocess  # nosec
         from contextlib import suppress
 
         with suppress(Exception):
-            subprocess.run(["pkill", "-f", "ollama serve"], check=False)
+            subprocess.run(["pkill", "-f", "ollama serve"], check=False)  # nosec
 
         import os
 

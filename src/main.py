@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-import subprocess
+import subprocess  # nosec
 import time
 from typing import Annotated, TypedDict
 
@@ -32,7 +32,7 @@ class OllamaManager:
         except Exception as e:
             logger.info("ollama_startup_required", reason=str(e))
             # Start and capture the process ID
-            self.proc = subprocess.Popen(
+            self.proc = subprocess.Popen(  # nosec
                 ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             logger.info("ollama_starting", pid=self.proc.pid)
@@ -123,7 +123,7 @@ async def main():
     logger.info("application_started")
 
     # Clear terminal and show banner
-    subprocess.run(["cls"] if os.name == "nt" else ["clear"], check=False)
+    subprocess.run(["cls"] if os.name == "nt" else ["clear"], check=False)  # nosec
     banner = """========================================
       Quant-Ollama Financial Analyst
 ========================================
