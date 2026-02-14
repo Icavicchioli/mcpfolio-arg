@@ -33,7 +33,7 @@ websockets==14.1
 
 # CLI Enhancement
 rich==14.3.2
-typer==0.15.1
+typer==0.23.1
 
 # Security & Robustness
 cryptography==46.0.3
