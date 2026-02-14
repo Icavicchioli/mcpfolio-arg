@@ -1,0 +1,88 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+---
+
+## [Unreleased]
+
+### Added
+- Full portfolio redesign: holdings table with Shares / Cost Per Share / Current Price / Total Value / G/L columns
+- Equity allocation doughnut chart (lazy-initialized to avoid hidden-canvas sizing bug)
+- Per-holding breakdown card showing share count and dollar G/L
+- News article count is now adjustable live — changing the count input re-renders from a cached article pool without triggering a new API call
+- Backend always fetches up to 20 news articles (the input's `max`); the frontend slices to the displayed count
+- `state.currentNews` cache in frontend for post-analysis count changes
+- Portfolio page hides the watchlist sidebar and expands to full width (`no-sidebar` CSS class toggle)
+- Danger Zone relocated to portfolio page bottom as a full-width section
+
+### Changed
+- Complete visual redesign ("Meridian Dark" design system):
+  - Accent color changed from `#3b82f6` (blue) to `#7c6ff7` (indigo-violet)
+  - Gain/loss colors changed to emerald (`#10b981`) and rose (`#f43f5e`)
+  - Signature 2px indigo→blue→emerald gradient top-line via `body::before`
+  - `QO` square logo mark replaces the pulse dot, with a breathing glow animation
+  - All financial numbers now use `font-variant-numeric: tabular-nums`
+  - Card section headings styled as uppercase label text (0.68rem, 800 weight, wide letter-spacing)
+  - Cards: deeper glass (`blur(24px) saturate(150%)`) with inner top-edge highlight
+  - Status dots: online state gains a `box-shadow` glow
+- Dashboard "Buy" button removed — dashboard is watchlist-only; portfolio input is via the modal
+- Portfolio modal redesigned: Ticker + Number of Shares + Cost Basis Per Share → auto-calculated Total Cost (removed current-price field that triggered expensive full AI analysis)
+- `cost_basis` is now stored as cost-per-share; G/L = `(qty × current_price) − (qty × cost_basis)`
+
+### Fixed
+- Broken "Buy" button on dashboard (had no event listener)
+- Portfolio pie chart 0×0 size bug when canvas was inside a hidden element at page load (fixed by lazy initialization)
+- Stale `add-portfolio-btn` DOM reference in `handleRemoveHolding()`
+- Duplicate CSS block for `.portfolio-grid`, `.portfolio-header`, `.danger-zone`
+- Cost basis double-counting: old code stored total cost but re-multiplied by quantity on render
+
+---
+
+## [0.2.0] — Multi-factor risk and structured LLM context
+
+### Added
+- Multi-factor risk score: volatility (40%) + analyst sentiment (30%) + P/E ratio (30%)
+- Structured LLM context block passed to the model: price, volatility, analyst ratings, recent news, portfolio context (if unlocked)
+- Long-term investment horizon framing in the system prompt
+- Market cap, P/E ratio, and dividend yield fields in the market snapshot card
+- Batch price fetching for portfolio holdings via `POST /api/portfolio/prices` (parallel yfinance calls)
+- Model picker: `GET /api/config/models` lists all installed Ollama models; `POST /api/config/model` switches model at runtime
+- News article count control in the dashboard UI
+- Loading spinner in the search button during analysis
+- Shutdown button in the header (`POST /api/admin/shutdown`) — gracefully stops backend and Ollama
+- 30-day sparkline trend chart in the market snapshot card (new `get_trend_data` MCP tool)
+
+### Changed
+- Analysis prompt updated to focus on long-term fundamental investing rather than short-term signals
+- Dashboard layout improved: card grid, icon updates, Danger Zone relocated
+
+---
+
+## [0.1.0] — Initial working system
+
+### Added
+- FastAPI backend with full analysis pipeline orchestrating MCP tool calls and LLM reasoning
+- MCP Finance Server (`src/server/finance.py`) with tools: `get_market_snapshot`, `get_sentiment_data`, `get_news`, `get_fund_info`
+- LangGraph ReAct state machine for multi-step reasoning (`src/graph/`)
+- Vite + vanilla JS SPA dashboard with glassmorphism dark theme
+- Watchlist: persistent storage, add/remove, last price display
+- Portfolio: AES-256 encrypted holdings, PBKDF2HMAC key derivation, lock/unlock/wipe workflow
+- Institutional sentiment bar chart (Buy / Strong Buy / Hold / Sell / Strong Sell)
+- Analysis history per session
+- Export endpoint (`GET /api/export/{ticker}`) — JSON and Markdown formats
+- WebSocket endpoint (`ws://localhost:8000/ws/analysis`) for streaming analysis progress
+- Pydantic-settings configuration with `QUANT_` env var prefix (`.env` support)
+- Structured JSON logging with rotating file handler
+- `@with_retry()` and `@circuit_breaker()` decorators on all MCP tools for yfinance rate limit resilience
+- Ollama connection pool (`src/ollama_pool.py`) for concurrent request handling
+- GitHub Actions CI: lint (Black, Ruff, MyPy), test matrix (ubuntu + macOS × Python 3.11 + 3.12), security scan (Safety + Bandit), build artifact
+- Dependabot configuration for automated dependency updates
+
+---
+
+[Unreleased]: https://github.com/your-username/quant-ollama-analyst/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/your-username/quant-ollama-analyst/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/your-username/quant-ollama-analyst/releases/tag/v0.1.0
