@@ -99,7 +99,7 @@ types = [
 docs = [
     "mkdocs>=1.5.0,<2.0.0",
     "mkdocs-material>=9.5.0,<10.0.0",
-    "mkdocstrings[python]>=0.24.0,<0.25.0",
+    "mkdocstrings[python]>=0.24.0,<1.1.0",
 ]
 
 # All extras combined
