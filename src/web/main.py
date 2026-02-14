@@ -124,7 +124,7 @@ class SecurePortfolioManager:
                 algorithm=hashes.SHA256(),
                 length=32,
                 salt=salt,
-                iterations=100000,
+                iterations=390000,
             )
             key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
             fernet = Fernet(key)
@@ -337,7 +337,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
 # Create FastAPI app
 app = FastAPI(
     title="Quant-Ollama API",
-    version="0.2.0",
+    version="0.2.1",
     description="Local-first financial analyst API",
     lifespan=lifespan,
 )
@@ -478,7 +478,7 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     elif pe_ratio is not None and pe_ratio < 0:
         pe_score = 80  # negative earnings
 
-    risk_score = vol_score * 0.4 + sentiment_score * 0.3 + pe_score * 0.3
+    risk_score = max(0.0, min(100.0, vol_score * 0.4 + sentiment_score * 0.3 + pe_score * 0.3))
 
     # --- Refactored AI Analysis ---
     from langchain_ollama import ChatOllama
