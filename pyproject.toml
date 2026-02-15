@@ -10,7 +10,7 @@ name = "quant-ollama-analyst"
 version = "0.2.1"
 description = "Local-first autonomous financial analyst using MCP and Ollama"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "CC0-1.0"}
 requires-python = ">=3.11,<3.13"
 authors = [
     {name = "Quant-Ollama Contributors"}
