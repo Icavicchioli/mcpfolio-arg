@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 def mock_ticker_data():
     """Load mock ticker data from JSON fixture"""
     fixture_path = Path(__file__).parent / "fixtures" / "mock_ticker_data.json"
-    with open(fixture_path) as f:
+    with fixture_path.open() as f:
         return json.load(f)
 
 
@@ -24,7 +24,7 @@ def mock_ticker_data():
 def mock_news_data():
     """Load mock news data from JSON fixture"""
     fixture_path = Path(__file__).parent / "fixtures" / "mock_news_response.json"
-    with open(fixture_path) as f:
+    with fixture_path.open() as f:
         return json.load(f)
 
 
@@ -32,7 +32,7 @@ def mock_news_data():
 def mock_sentiment_data():
     """Load mock sentiment data from JSON fixture"""
     fixture_path = Path(__file__).parent / "fixtures" / "mock_sentiment.json"
-    with open(fixture_path) as f:
+    with fixture_path.open() as f:
         return json.load(f)
 
 
