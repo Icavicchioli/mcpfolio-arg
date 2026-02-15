@@ -1,7 +1,6 @@
 # Quant-Ollama
 
 [![CI](https://github.com/adkarp/quant-ollama-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/adkarp/quant-ollama-analyst/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/adkarp/quant-ollama-analyst/branch/master/graph/badge.svg)](https://codecov.io/gh/adkarp/quant-ollama-analyst)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: Public Domain](https://img.shields.io/badge/license-Public%20Domain-brightgreen)](#license)
 
