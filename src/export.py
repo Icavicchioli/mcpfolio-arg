@@ -31,7 +31,7 @@ def export_to_json(data: dict, output_path: str | Path) -> Path:
     logger.info("export_json_started", output_path=str(output_path))
 
     try:
-        with open(output_path, "w") as f:
+        with output_path.open("w") as f:
             json.dump(data, f, indent=2, default=str)
 
         logger.info("export_json_complete", output_path=str(output_path))
@@ -146,7 +146,7 @@ def export_to_markdown(data: dict, output_path: str | Path) -> Path:
         md_content += f"*Report Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n"
 
         # Write to file
-        with open(output_path, "w") as f:
+        with output_path.open("w") as f:
             f.write(md_content)
 
         logger.info("export_markdown_complete", output_path=str(output_path))
