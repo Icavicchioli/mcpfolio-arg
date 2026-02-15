@@ -40,8 +40,8 @@ pip install -e ".[dev]"
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| langgraph | 1.0.7 | State machine orchestration |
-| langchain-core | 1.2.7 | LangChain framework |
+| langgraph | 1.0.8 | State machine orchestration |
+| langchain-core | 1.2.9 | LangChain framework |
 | langchain-ollama | 1.0.1 | Ollama integration |
 | langchain-mcp-adapters | 0.2.1 | MCP to LangChain adapter |
 | mcp | 1.26.0 | Model Context Protocol |
@@ -59,10 +59,10 @@ pip install -e ".[dev]"
 | pytest-asyncio | 1.3.0 | Async test support |
 | pytest-cov | 7.0.0 | Code coverage |
 | pytest-mock | 3.15.1 | Mocking utilities |
-| black | 24.10.0 | Code formatter |
+| black | 26.1.0 | Code formatter |
 | ruff | 0.8.5 | Fast linter |
-| mypy | 1.14.1 | Static type checker |
-| pre-commit | 4.0.1 | Git hooks manager |
+| mypy | 1.19.1 | Static type checker |
+| pre-commit | 4.5.1 | Git hooks manager |
 
 ## Updating Dependencies
 
@@ -150,15 +150,15 @@ See `.github/dependabot.yml` for configuration.
 pip install safety
 
 # Check for known vulnerabilities
-safety check
+safety scan
 
 # Check with detailed output
-safety check --json --output safety-report.json
+safety scan --json --output safety-report.json
 ```
 
 ### Automated Scanning
 
-- **CI Pipeline**: Runs `safety check` on every push
+- **CI Pipeline**: Runs `safety scan` on every push
 - **Dependabot**: Automatically opens PRs for security updates
 - **Pre-commit**: Can run safety checks before commits
 

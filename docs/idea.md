@@ -1,3 +1,7 @@
+> **Original design specification.** This document captures the initial architecture plan before the project was built. The implementation evolved beyond this spec — notably, `config.toml` was replaced by Pydantic Settings, the directory structure expanded, and a full web UI was added. Kept here for historical context.
+
+---
+
 This expanded specification transforms the "stock analyzer" into a production-ready repository concept: **Quant-Ollama V1**.
 
 By leveraging the **Model Context Protocol (MCP)**, we solve the biggest weakness of local LLMs: their lack of access to real-time, high-fidelity data. In 2026, this modular approach is the gold standard for building agents that are both private and powerful.
