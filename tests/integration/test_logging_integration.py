@@ -24,16 +24,21 @@ def test_logging_imports_in_all_modules():
 
 
 @pytest.mark.integration
-def test_log_file_creation():
+def test_log_file_creation(tmp_path):
     """Test log file is created and writable"""
-    from pathlib import Path
+    import logging
 
-    from logging_config import get_logger
+    from logging_config import get_logger, setup_logging
 
-    log_file = Path("logs/quant-ollama.log")
+    log_file = tmp_path / "quant-ollama.log"
+    setup_logging(log_file=str(log_file), enable_console=False)
+
     logger = get_logger("test_integration")
-
     logger.info("integration_test_message", component="test")
+
+    # Flush handlers to ensure buffered write is committed before stat()
+    for handler in logging.getLogger().handlers:
+        handler.flush()
 
     assert log_file.exists()
     assert log_file.stat().st_size > 0
