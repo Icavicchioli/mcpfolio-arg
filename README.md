@@ -1,10 +1,23 @@
 # Quant-Ollama
 
+[![CI](https://github.com/adkarp/quant-ollama-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/adkarp/quant-ollama-analyst/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/adkarp/quant-ollama-analyst/branch/master/graph/badge.svg)](https://codecov.io/gh/adkarp/quant-ollama-analyst)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
+[![License: Public Domain](https://img.shields.io/badge/license-Public%20Domain-brightgreen)](#license)
+
 > **Vibe-coded** in collaboration with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev). Vibe-coded PRs are welcome — see [Contributing](#contributing).
 
 **A local-first, privacy-preserving financial analyst powered by a local LLM.**
 
 Quant-Ollama connects a locally-running Ollama model to live market data through the Model Context Protocol (MCP), producing structured risk assessments, AI-written analysis, institutional sentiment breakdowns, and curated news — all without sending your data to any external AI service.
+
+---
+
+| Dashboard | Portfolio |
+|---|---|
+| ![Dashboard](docs/screenshot-dashboard.png) | ![Portfolio](docs/screenshot-portfolio.png) |
+
+*Tickers, share counts, and prices shown are illustrative only and do not represent real holdings or investment positions.*
 
 ---
 
@@ -136,7 +149,7 @@ The salt is stored alongside the ciphertext. The password is never persisted. Th
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/quant-ollama-analyst.git
+git clone https://github.com/adkarp/quant-ollama-analyst.git
 cd quant-ollama-analyst
 
 # 2. Create and activate the conda environment

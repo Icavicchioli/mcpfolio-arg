@@ -21,7 +21,7 @@ This document covers getting a local environment running, code conventions, and 
 
 ```bash
 # 1. Fork and clone
-git clone https://github.com/your-username/quant-ollama-analyst.git
+git clone https://github.com/adkarp/quant-ollama-analyst.git
 cd quant-ollama-analyst
 
 # 2. Create environment
@@ -84,7 +84,7 @@ black src/ tests/
 # Lint (errors block CI; warnings are advisory)
 ruff check src/ tests/
 
-# Type checking (advisory — does not block CI yet)
+# Type checking (advisory)
 mypy src/
 ```
 
