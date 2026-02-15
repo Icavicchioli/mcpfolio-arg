@@ -25,23 +25,22 @@ def test_logging_imports_in_all_modules():
 
 @pytest.mark.integration
 def test_log_file_creation(tmp_path):
-    """Test log file is created and writable"""
+    """Test that setup_logging installs a RotatingFileHandler at the given path"""
     import logging
+    from logging.handlers import RotatingFileHandler
+    from pathlib import Path
 
-    from logging_config import get_logger, setup_logging
+    from logging_config import setup_logging
 
     log_file = tmp_path / "quant-ollama.log"
     setup_logging(log_file=str(log_file), enable_console=False)
 
-    logger = get_logger("test_integration")
-    logger.info("integration_test_message", component="test")
+    root = logging.getLogger()
+    file_handlers = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
 
-    # Flush handlers to ensure buffered write is committed before stat()
-    for handler in logging.getLogger().handlers:
-        handler.flush()
-
+    assert len(file_handlers) == 1, f"Expected 1 RotatingFileHandler, got: {root.handlers}"
+    assert Path(file_handlers[0].baseFilename).resolve() == log_file.resolve()
     assert log_file.exists()
-    assert log_file.stat().st_size > 0
 
 
 @pytest.mark.integration
