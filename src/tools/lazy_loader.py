@@ -6,6 +6,7 @@ This reduces startup time from ~8-10s to <3s.
 """
 
 import asyncio
+from typing import Any, cast
 
 from src.logging_config import get_logger
 
@@ -40,7 +41,7 @@ class LazyMCPClient:
                         "finance": {
                             "command": "python",
                             "args": [settings.mcp_server_path],
-                            "transport": settings.mcp_transport,
+                            "transport": cast(Any, settings.mcp_transport),
                         }
                     }
                 )

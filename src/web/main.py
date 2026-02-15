@@ -205,7 +205,7 @@ class SessionManager:
         """Load watchlist from disk"""
         try:
             if self.watchlist_path.exists():
-                with open(self.watchlist_path) as f:
+                with self.watchlist_path.open() as f:
                     data = json.load(f)
                     self.watchlist = [WatchlistItem(**item) for item in data]
                 logger.info("watchlist_loaded_from_disk", count=len(self.watchlist))
@@ -216,7 +216,7 @@ class SessionManager:
         """Save watchlist to disk"""
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.watchlist_path, "w") as f:
+            with self.watchlist_path.open("w") as f:
                 json.dump([w.model_dump(mode="json") for w in self.watchlist], f)
             logger.debug("watchlist_saved_to_disk")
         except Exception as e:
@@ -556,7 +556,7 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
                 ("user", f"Retrieved context for {request.ticker}:\n{context}"),
             ]
         )
-        ai_analysis = llm_response.content
+        ai_analysis = str(llm_response.content)
         logger.info("ai_synthesis_complete", ticker=request.ticker)
     except Exception as e:
         logger.error("ai_synthesis_failed", error=str(e))

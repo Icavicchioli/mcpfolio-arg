@@ -74,7 +74,7 @@ def test_log_file_creation():
         print(f"  Size: {log_file.stat().st_size} bytes")
 
         # Show last few lines
-        with open(log_file) as f:
+        with log_file.open() as f:
             lines = f.readlines()
             print(f"  Total log entries: {len(lines)}")
             if lines:

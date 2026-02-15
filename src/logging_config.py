@@ -14,6 +14,7 @@ import uuid
 from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any, cast
 
 import structlog
 
@@ -122,7 +123,7 @@ def setup_logging(
     root_logger.addHandler(file_handler)
 
     # Configure structlog processors
-    processors = [
+    processors: list[Any] = [
         structlog.stdlib.filter_by_level,
         add_request_id,
         add_timestamp,
@@ -159,7 +160,7 @@ def get_logger(name: str | None = None) -> structlog.BoundLogger:
     Returns:
         Configured structlog logger
     """
-    return structlog.get_logger(name)
+    return cast(structlog.BoundLogger, structlog.get_logger(name))
 
 
 # Convenience function for timing operations
@@ -182,7 +183,8 @@ class LogTimer:
     def __exit__(self, exc_type, exc_val, exc_tb):
         import time
 
-        duration_ms = (time.time() - self.start_time) * 1000
+        start_time = self.start_time or time.time()
+        duration_ms = (time.time() - start_time) * 1000
 
         if exc_type is None:
             self.logger.info(
