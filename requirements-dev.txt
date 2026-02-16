@@ -15,7 +15,7 @@ freezegun==1.5.5
 
 # Code quality
 black==26.1.0
-ruff==0.8.5
+ruff==0.15.1
 mypy==1.19.1
 pre-commit==4.5.1
 
