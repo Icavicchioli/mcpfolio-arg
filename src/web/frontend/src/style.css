@@ -1151,6 +1151,121 @@ main.no-sidebar {
   font-size: 0.8rem;
 }
 
+/* ── Thesis History ─────────────────────────────────────────────── */
+.thesis-history-card {
+  grid-column: span 2;
+  padding: 1.25rem 1.5rem;
+  overflow: hidden;
+}
+
+.thesis-history-card h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.thesis-header-row {
+  display: grid;
+  grid-template-columns: 90px 60px 80px 80px 80px 1fr;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+}
+
+.thesis-row {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.thesis-row:last-child {
+  border-bottom: none;
+}
+
+.thesis-row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.thesis-row-main {
+  display: grid;
+  grid-template-columns: 90px 60px 80px 80px 80px 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.thesis-date {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
+.thesis-ticker {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.thesis-rec-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  width: fit-content;
+}
+
+.thesis-conf,
+.thesis-price {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+
+.thesis-risk {
+  color: var(--text-muted);
+  font-size: 0.79rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thesis-expand {
+  padding: 0.75rem 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.83rem;
+  line-height: 1.65;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.thesis-expand h2 {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  color: var(--accent-light);
+}
+
+.thesis-expand ul {
+  padding-left: 1.25rem;
+  margin: 0.35rem 0;
+}
+
 /* Danger zone — full width */
 .danger-zone {
   grid-column: span 2;

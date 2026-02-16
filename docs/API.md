@@ -105,11 +105,19 @@ This is the slowest endpoint (~10–60 s depending on model and hardware). The L
     }
   ],
   "ai_analysis": "## Investment Assessment\n\nApple Inc. presents...",
-  "risk_score": 35.2
+  "risk_score": 35.2,
+  "recommendation": "BUY",
+  "confidence": 0.82,
+  "key_risk": "High dependence on AI-driven growth and increasing debt load.",
+  "fair_value": 305.72
 }
 ```
 
 `risk_score` is 0–100: 0–30 = Low, 31–70 = Medium, 71–100 = High.
+
+`recommendation` is one of `BUY`, `HOLD`, `SELL`, or `CAUTION` (parsed from LLM output; `null` if the LLM did not emit the structured block).
+
+`confidence` is 0.0–1.0; `key_risk` is a single-sentence summary; `fair_value` is the LLM's estimated intrinsic price (null if N/A or not emitted).
 
 **Errors**
 - `422` — invalid ticker length or missing field
@@ -190,6 +198,60 @@ Removes a ticker from the watchlist.
 
 ---
 
+### `POST /api/watchlist/refresh`
+
+Batch-fetches the current price for every ticker in the watchlist in parallel and updates their `last_price` / `last_updated` fields. Called automatically by the frontend on startup.
+
+**Response `200`**
+```json
+{
+  "watchlist": [
+    {
+      "ticker": "AAPL",
+      "added_at": "2026-02-14T09:15:00",
+      "last_price": 227.5,
+      "last_updated": "2026-02-16T08:00:00"
+    }
+  ]
+}
+```
+
+Tickers that fail to resolve (rate limit, invalid symbol) retain their previous `last_price` without erroring the whole request.
+
+---
+
+## Comparison
+
+### `POST /api/compare`
+
+Fetches market data for two tickers in parallel (6 concurrent MCP calls) and returns a side-by-side LLM analysis with a winner verdict.
+
+**Request body**
+```json
+{
+  "ticker_a": "AAPL",
+  "ticker_b": "MSFT"
+}
+```
+
+**Response `200`**
+```json
+{
+  "ticker_a": "AAPL",
+  "ticker_b": "MSFT",
+  "analysis": "## AAPL vs MSFT\n\n...",
+  "verdict": "MSFT"
+}
+```
+
+`verdict` is whichever ticker the LLM recommended; parsed from a `COMPARISON: <TICKER>` line in the LLM output.
+
+**Errors**
+- `422` — missing or invalid ticker symbols
+- `500` — data fetch failure or Ollama timeout
+
+---
+
 ## Analysis History
 
 ### `GET /api/history`
@@ -214,6 +276,56 @@ History is in-memory only. It resets when the server restarts.
 
 ---
 
+## Thesis History
+
+Thesis history persists across restarts, encrypted in `data/thesis.enc`. These endpoints require the portfolio to be unlocked first; they return `401` when locked.
+
+---
+
+### `GET /api/thesis`
+
+Returns the 200 most recent thesis records across all tickers, newest-first.
+
+**Response `200`**
+```json
+{
+  "thesis": [
+    {
+      "ticker": "AAPL",
+      "timestamp": "2026-02-16T10:30:00.000000",
+      "recommendation": "BUY",
+      "confidence": 0.82,
+      "key_risk": "High valuation premium relative to peers.",
+      "fair_value": 250.0,
+      "risk_score": 35.2,
+      "price": 227.5,
+      "ai_analysis": "## Thesis\n\n..."
+    }
+  ]
+}
+```
+
+**Errors**
+- `401` — portfolio locked
+
+---
+
+### `GET /api/thesis/{ticker}`
+
+Returns the 50 most recent thesis records for a single ticker, newest-first.
+
+**Path parameters**
+- `ticker` — stock symbol (case-insensitive)
+
+**Response `200`**
+
+Same structure as `GET /api/thesis` but filtered to the requested ticker.
+
+**Errors**
+- `401` — portfolio locked
+
+---
+
 ## Portfolio
 
 All portfolio endpoints require the portfolio to be unlocked first. Endpoints return `401` if the portfolio is locked.
@@ -222,7 +334,7 @@ All portfolio endpoints require the portfolio to be unlocked first. Endpoints re
 
 ### `POST /api/portfolio/unlock`
 
-Unlocks the portfolio for the current session. Derives the encryption key from the password and verifies it against the stored ciphertext.
+Unlocks the portfolio **and** thesis history for the current session. Derives the Fernet encryption key from the password and verifies it against the stored ciphertext. Both `data/portfolio.enc` and `data/thesis.enc` use the same salt and key.
 
 **Request body**
 ```json
@@ -241,7 +353,7 @@ Unlocks the portfolio for the current session. Derives the encryption key from t
 
 ### `POST /api/portfolio/lock`
 
-Locks the portfolio and clears the session key from memory.
+Locks the portfolio **and** thesis history, clearing the session key from memory.
 
 **Response `200`**
 ```json
