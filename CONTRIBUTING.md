@@ -35,9 +35,11 @@ pip install -r requirements-dev.txt
 # 4. Pull a model
 ollama pull llama3.2:3b
 
-# 5. Run the app
-python src/main.py
+# 5. Start the dashboard
+bash scripts/start-dashboard.sh
 ```
+
+The script handles conda environment activation, Ollama startup, and health-checking automatically.
 
 ### Frontend dev server (with hot reload)
 
@@ -47,10 +49,10 @@ npm install
 npm run dev   # Vite dev server on :5173, proxies /api/* to :8000
 ```
 
-In a separate terminal, run the backend:
+In a separate terminal, start the backend:
 
 ```bash
-python src/main.py
+bash scripts/start-dashboard.sh
 ```
 
 ---
