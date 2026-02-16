@@ -1,1 +1,1 @@
-"""Web UI package for Quant-Ollama."""
+"""Web UI package for MCPFolio."""

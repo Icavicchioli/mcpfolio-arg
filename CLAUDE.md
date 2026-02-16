@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Quant-Ollama is a local-first, autonomous financial analyst that uses MCP (Model Context Protocol) to provide real-time market data to a local LLM. It acts as a "sanity check" layer for investors by performing comprehensive risk assessments through a multi-step reasoning loop.
+MCPFolio is a local-first, autonomous financial analyst that uses MCP (Model Context Protocol) to provide real-time market data to a local LLM. It acts as a "sanity check" layer for investors by performing comprehensive risk assessments through a multi-step reasoning loop.
 
 ## Tech Stack
 
@@ -43,7 +43,7 @@ pip install -r requirements.txt
 bash scripts/start-dashboard.sh
 
 # Run the CLI (single-ticker analysis, no dashboard)
-conda activate quant-ollama-analyst
+conda activate mcpfolio
 python src/main.py --ticker AAPL
 
 # Run MCP server standalone (for testing)

@@ -32,7 +32,7 @@ def test_log_file_creation(tmp_path):
 
     from logging_config import setup_logging
 
-    log_file = tmp_path / "quant-ollama.log"
+    log_file = tmp_path / "mcpfolio.log"
     setup_logging(log_file=str(log_file), enable_console=False)
 
     root = logging.getLogger()

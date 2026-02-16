@@ -1,6 +1,6 @@
-# Contributing to Quant-Ollama
+# Contributing to MCPFolio
 
-Quant-Ollama was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev), and **vibe-coded contributions are explicitly welcome**. If you built something by pair-programming with an AI, ran it, and it worked — open a PR. The bar is working code, not a particular development process.
+MCPFolio was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev), and **vibe-coded contributions are explicitly welcome**. If you built something by pair-programming with an AI, ran it, and it worked — open a PR. The bar is working code, not a particular development process.
 
 This document covers getting a local environment running, code conventions, and how to submit changes. There is no CLA and no copyright assignment — the project is public domain.
 
@@ -21,12 +21,12 @@ This document covers getting a local environment running, code conventions, and 
 
 ```bash
 # 1. Fork and clone
-git clone https://github.com/adkarp/quant-ollama-analyst.git
-cd quant-ollama-analyst
+git clone https://github.com/adkarp/mcpfolio.git
+cd mcpfolio
 
 # 2. Create environment
-conda create -n quant-ollama-analyst python=3.11 -y
-conda activate quant-ollama-analyst
+conda create -n mcpfolio python=3.11 -y
+conda activate mcpfolio
 
 # 3. Install all dependencies (runtime + dev)
 pip install -r requirements.txt
@@ -126,13 +126,13 @@ Add tests for any new MCP tool or API endpoint. Tests that require a live Ollama
 Copy `.env.example` to `.env` and adjust for your setup. The most relevant dev settings:
 
 ```bash
-QUANT_OLLAMA_MODEL=llama3.2:3b
-QUANT_LOG_LEVEL=DEBUG
-QUANT_LOG_JSON_FORMAT=false   # Human-readable logs in dev
-QUANT_YFINANCE_CACHE_TTL=60   # Shorter cache for faster dev iteration
+MCPFOLIO_OLLAMA_MODEL=llama3.2:3b
+MCPFOLIO_LOG_LEVEL=DEBUG
+MCPFOLIO_LOG_JSON_FORMAT=false   # Human-readable logs in dev
+MCPFOLIO_YFINANCE_CACHE_TTL=60   # Shorter cache for faster dev iteration
 ```
 
-All settings have the `QUANT_` prefix and are documented in `src/config.py`.
+All settings have the `MCPFOLIO_` prefix and are documented in `src/config.py`.
 
 ---
 
@@ -190,7 +190,7 @@ All settings have the `QUANT_` prefix and are documented in `src/config.py`.
 Open a [GitHub Issue](../../issues) with:
 - What you did
 - What you expected
-- What happened (include the relevant log lines from `logs/quant-ollama.log`)
+- What happened (include the relevant log lines from `logs/mcpfolio.log`)
 - Your OS, Python version, and Ollama model
 
 ---

@@ -20,4 +20,4 @@ What you expected to happen.
 - Browser (if UI bug):
 
 **Logs / error output**
-Paste any relevant output from `logs/quant-ollama.log` or the terminal.
+Paste any relevant output from `logs/mcpfolio.log` or the terminal.

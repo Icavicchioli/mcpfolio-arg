@@ -23,9 +23,9 @@ def test_settings_from_env_vars(monkeypatch):
     from config import reload_settings
 
     # Set environment variables
-    monkeypatch.setenv("QUANT_ENVIRONMENT", "production")
-    monkeypatch.setenv("QUANT_OLLAMA_MODEL", "llama3.2:1b")
-    monkeypatch.setenv("QUANT_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("MCPFOLIO_ENVIRONMENT", "production")
+    monkeypatch.setenv("MCPFOLIO_OLLAMA_MODEL", "llama3.2:1b")
+    monkeypatch.setenv("MCPFOLIO_LOG_LEVEL", "DEBUG")
 
     # Reload settings to pick up env vars
     settings = reload_settings()

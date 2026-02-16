@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the Quant-Ollama web interface
+# Start the MCPFolio web interface
 #
 # Usage: ./scripts/start-web.sh [port]
 
@@ -13,15 +13,15 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}  Quant-Ollama Web Interface${NC}"
+echo -e "${CYAN}  MCPFolio Web Interface${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo ""
 
 # Check if conda environment is activated
-if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "quant-ollama-analyst" ]]; then
-    echo "Activating conda environment: quant-ollama-analyst"
+if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "mcpfolio" ]]; then
+    echo "Activating conda environment: mcpfolio"
     source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate quant-ollama-analyst
+    conda activate mcpfolio
 fi
 
 echo -e "${GREEN}→${NC} Starting web server on port ${PORT}..."

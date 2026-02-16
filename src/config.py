@@ -11,14 +11,14 @@ class Settings(BaseSettings):
     """
     Application configuration with environment variable support.
 
-    All settings can be overridden via environment variables with QUANT_ prefix.
-    Example: QUANT_OLLAMA_MODEL=llama3.2:3b
+    All settings can be overridden via environment variables with MCPFOLIO_ prefix.
+    Example: MCPFOLIO_OLLAMA_MODEL=llama3.2:3b
     """
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        env_prefix="QUANT_",
+        env_prefix="MCPFOLIO_",
         case_sensitive=False,
         extra="ignore",
     )
@@ -83,7 +83,7 @@ class Settings(BaseSettings):
         default="INFO", description="Logging level"
     )
 
-    log_file: str = Field(default="logs/quant-ollama.log", description="Log file path")
+    log_file: str = Field(default="logs/mcpfolio.log", description="Log file path")
 
     log_max_bytes: int = Field(
         default=10_000_000,

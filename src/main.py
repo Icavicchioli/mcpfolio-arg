@@ -1,4 +1,4 @@
-"""Quant-Ollama: Local-first autonomous financial analyst."""
+"""MCPFolio: Local-first autonomous financial analyst."""
 
 import asyncio
 import os
@@ -125,7 +125,7 @@ async def main():
     # Clear terminal and show banner
     subprocess.run(["cls"] if os.name == "nt" else ["clear"], check=False)  # nosec
     banner = """========================================
-      Quant-Ollama Financial Analyst
+         MCPFolio
 ========================================
 
 A local-first, autonomous financial analyst designed to be your 'Sanity Check' layer.

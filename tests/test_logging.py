@@ -67,7 +67,7 @@ def test_log_file_creation():
     from pathlib import Path
 
     print("\nChecking log file creation...")
-    log_file = Path("logs/quant-ollama.log")
+    log_file = Path("logs/mcpfolio.log")
 
     if log_file.exists():
         print(f"✓ Log file created: {log_file}")

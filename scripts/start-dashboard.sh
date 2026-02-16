@@ -2,7 +2,7 @@
 
 # Configuration
 PORT=${PORT:-8000}
-CONDA_ENV="quant-ollama-analyst"
+CONDA_ENV="mcpfolio"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   Quant-Ollama Dashboard Startup      ${NC}"
+echo -e "${BLUE}      MCPFolio Dashboard Startup       ${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # 1. Check Ollama
