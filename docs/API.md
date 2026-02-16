@@ -276,6 +276,56 @@ History is in-memory only. It resets when the server restarts.
 
 ---
 
+## Thesis History
+
+Thesis history persists across restarts, encrypted in `data/thesis.enc`. These endpoints require the portfolio to be unlocked first; they return `401` when locked.
+
+---
+
+### `GET /api/thesis`
+
+Returns the 200 most recent thesis records across all tickers, newest-first.
+
+**Response `200`**
+```json
+{
+  "thesis": [
+    {
+      "ticker": "AAPL",
+      "timestamp": "2026-02-16T10:30:00.000000",
+      "recommendation": "BUY",
+      "confidence": 0.82,
+      "key_risk": "High valuation premium relative to peers.",
+      "fair_value": 250.0,
+      "risk_score": 35.2,
+      "price": 227.5,
+      "ai_analysis": "## Thesis\n\n..."
+    }
+  ]
+}
+```
+
+**Errors**
+- `401` — portfolio locked
+
+---
+
+### `GET /api/thesis/{ticker}`
+
+Returns the 50 most recent thesis records for a single ticker, newest-first.
+
+**Path parameters**
+- `ticker` — stock symbol (case-insensitive)
+
+**Response `200`**
+
+Same structure as `GET /api/thesis` but filtered to the requested ticker.
+
+**Errors**
+- `401` — portfolio locked
+
+---
+
 ## Portfolio
 
 All portfolio endpoints require the portfolio to be unlocked first. Endpoints return `401` if the portfolio is locked.
@@ -284,7 +334,7 @@ All portfolio endpoints require the portfolio to be unlocked first. Endpoints re
 
 ### `POST /api/portfolio/unlock`
 
-Unlocks the portfolio for the current session. Derives the encryption key from the password and verifies it against the stored ciphertext.
+Unlocks the portfolio **and** thesis history for the current session. Derives the Fernet encryption key from the password and verifies it against the stored ciphertext. Both `data/portfolio.enc` and `data/thesis.enc` use the same salt and key.
 
 **Request body**
 ```json
@@ -303,7 +353,7 @@ Unlocks the portfolio for the current session. Derives the encryption key from t
 
 ### `POST /api/portfolio/lock`
 
-Locks the portfolio and clears the session key from memory.
+Locks the portfolio **and** thesis history, clearing the session key from memory.
 
 **Response `200`**
 ```json

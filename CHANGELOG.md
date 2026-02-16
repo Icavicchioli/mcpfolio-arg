@@ -22,6 +22,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (Phase C — thesis tracking + SYSTEM_PROMPT formatting fix)
+- `src/persistence.py` — new `ThesisStore` class: encrypts per-analysis thesis records to `data/thesis.enc` using Fernet (same salt + same password as `SecurePortfolioManager`); one password unlocks both stores
+- `GET /api/thesis` — returns the 200 most recent thesis records across all tickers (newest-first); requires portfolio unlock, returns `401` when locked
+- `GET /api/thesis/{ticker}` — returns the 50 most recent thesis records for a single ticker; same auth requirement
+- `SessionManager.add_analysis()` now persists to `ThesisStore` when unlocked, so every analysis after unlock is durably recorded across restarts
+- `POST /api/portfolio/unlock` and `POST /api/portfolio/lock` now also unlock/lock the thesis store — one password, one action
+- Thesis History card added to the Portfolio page (frontend): shows date · ticker · color-coded REC badge · confidence · price · key-risk preview; click-to-expand renders the full `ai_analysis` inline
+- 13 new unit tests for `ThesisStore` (`tests/unit/test_persistence.py`); `ThesisStore` coverage 96.97%
+
+### Changed (Phase C)
+- `SYSTEM_PROMPT` OUTPUT FORMAT block replaced with explicit per-line formatting rules and a BAD/GOOD counter-example, requiring the LLM to put each header field on its own line, always emit `FAIR_VALUE`, and always use `##` section headers
+
 ### Added (Phase B — new MCP tools and data-aware enrichment)
 - `get_earnings_calendar(ticker)` MCP tool — next earnings date, days until, EPS/revenue estimates, and `earnings_imminent` flag (true when ≤7 days away)
 - `get_macro_context()` MCP tool — S&P 500 YTD return, VIX level + market regime (Risk-On / Normal / Elevated / Risk-Off), 10-year Treasury yield; 30-min TTL cache
