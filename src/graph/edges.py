@@ -11,3 +11,14 @@ def should_continue(state) -> str:
         return "tools"
 
     return "end"
+
+
+def route_after_parse(state) -> str:
+    """Route to the appropriate next node based on parsed query mode.
+
+    Returns:
+        "single"  → prefetch node (one ticker detected)
+        "compare" → prefetch_compare node (two tickers detected)
+        "chat"    → agent node directly (no tickers, conversational query)
+    """
+    return str(state.get("mode", "chat"))
