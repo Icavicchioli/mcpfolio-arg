@@ -35,11 +35,12 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 
 ### Portfolio
 - **Encrypted local storage** — holdings are encrypted with AES-256 (Fernet) using a PBKDF2-derived key; the password never leaves the device
-- **Lock / unlock workflow** — portfolio is locked by default; unlock with your local password each session
+- **Lock / unlock workflow** — portfolio is locked by default; unlock with your local password each session; the same password also unlocks thesis history
 - **Add positions** — enter ticker, number of shares, and cost basis per share; total cost is calculated automatically
 - **Live G/L tracking** — current prices are batch-fetched in parallel at portfolio open; gain/loss is shown per position and as a portfolio total
 - **Equity allocation chart** — doughnut chart showing each holding as a percentage of total portfolio value
 - **Holdings detail** — per-ticker share count and dollar gain/loss breakdown
+- **Thesis history** — every analysis run while unlocked is persisted to `data/thesis.enc`; the Thesis History panel shows date · ticker · color-coded recommendation · confidence · price · key risk preview, with click-to-expand for the full AI analysis; survives server restarts
 - **Danger zone** — permanently wipe all encrypted portfolio data from the device
 
 ### Infrastructure

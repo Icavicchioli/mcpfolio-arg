@@ -67,10 +67,22 @@ All nodes are created via factory functions so they capture `model` and `tools_b
 - `should_continue(state)` — returns `"tools"` if last message has tool calls, else `"end"`
 - `route_after_parse(state)` — returns `state["mode"]` (`"single"` | `"compare"` | `"chat"`)
 
+### Persistence Layer (`src/persistence.py`)
+
+`ThesisStore` — encrypted thesis history using Fernet, same salt/password as `SecurePortfolioManager`.
+
+- `data/thesis.enc` — encrypted JSON list of `ThesisRecord` dicts
+- `data/portfolio.salt` — shared salt (used by both portfolio and thesis)
+- `ThesisRecord` fields: `ticker`, `timestamp` (ISO 8601), `recommendation`, `confidence`, `key_risk`, `fair_value`, `risk_score`, `price`, `ai_analysis`
+- One password unlocks both stores; `POST /api/portfolio/unlock` and `POST /api/portfolio/lock` delegate to both
+- `thesis.enc` is created on first `save()`; read returns `[]` gracefully when absent
+- `GET /api/thesis` — last 200 records across tickers, newest-first (401 if locked)
+- `GET /api/thesis/{ticker}` — last 50 records for one ticker (401 if locked)
+
 ### Dashboard / Web Path (`src/web/main.py`)
 
 FastAPI app. Key flows:
-- **`POST /api/analyze`** — calls `run_analysis_task`, which fetches market snapshot, sentiment, and news **in parallel** via `asyncio.gather`, then calls the LLM directly (no LangGraph).
+- **`POST /api/analyze`** — calls `run_analysis_task`, which fetches market snapshot, sentiment, and news **in parallel** via `asyncio.gather`, then calls the LLM directly (no LangGraph); result is appended to in-memory history and persisted to `ThesisStore` when unlocked.
 - **`POST /api/compare`** — fetches 6 MCP tools in parallel (3 per ticker), formats a side-by-side context with `format_comparison_context`, calls LLM with `COMPARISON_SYSTEM_PROMPT`, returns `ComparisonResponse` with `verdict`.
 
 ### Shared Prompts & Formatters (`src/prompts.py`)
