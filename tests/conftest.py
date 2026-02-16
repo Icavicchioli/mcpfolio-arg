@@ -113,6 +113,18 @@ def sample_tickers():
     }
 
 
+@pytest.fixture(autouse=True)
+def clear_finance_caches():
+    """Clear module-level TTL caches before every test for isolation."""
+    import server.finance as finance_mod
+
+    finance_mod._SNAPSHOT_CACHE.clear()
+    finance_mod._SENTIMENT_CACHE.clear()
+    yield
+    finance_mod._SNAPSHOT_CACHE.clear()
+    finance_mod._SENTIMENT_CACHE.clear()
+
+
 @pytest.fixture
 def finance_tools():
     """Import finance tools and extract raw functions from FastMCP wrappers"""

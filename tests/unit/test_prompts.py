@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from prompts import format_comparison_context, format_single_context
+from prompts import format_comparison_context, format_single_context, parse_llm_output
 
 SNAPSHOT = {
     "current_price": 195.50,
@@ -107,3 +107,73 @@ def test_format_comparison_context_with_data():
     )
     assert "ANALYST CONSENSUS" in ctx  # from AAPL block (aggregate)
     assert "Goldman Sachs" in ctx  # from MSFT block (firm)
+
+
+# --- parse_llm_output ---
+
+_MULTILINE_OUTPUT = """\
+RECOMMENDATION: BUY
+CONFIDENCE: 0.85
+KEY_RISK: High valuation premium
+FAIR_VALUE: $210.00
+
+## Thesis
+Strong fundamentals support a long-term hold.
+"""
+
+_SINGLELINE_OUTPUT = (
+    "RECOMMENDATION: BUY CONFIDENCE: 0.95 "
+    "KEY_RISK: High dependence on AI-driven growth and increasing debt load. "
+    "FAIR VALUE: $305.72"
+)
+
+
+def test_parse_llm_output_multiline():
+    r = parse_llm_output(_MULTILINE_OUTPUT)
+    assert r["recommendation"] == "BUY"
+    assert r["confidence"] == 0.85
+    assert r["key_risk"] == "High valuation premium"
+    assert r["fair_value"] == 210.0
+
+
+def test_parse_llm_output_singleline():
+    """LLM may put all fields on one line; parser must handle it."""
+    r = parse_llm_output(_SINGLELINE_OUTPUT)
+    assert r["recommendation"] == "BUY"
+    assert r["confidence"] == 0.95
+    assert "AI-driven growth" in r["key_risk"]
+    assert r["fair_value"] == 305.72
+
+
+def test_parse_llm_output_fair_value_space_variant():
+    """Accept FAIR VALUE (space) as well as FAIR_VALUE (underscore)."""
+    r = parse_llm_output("RECOMMENDATION: HOLD\nCONFIDENCE: 0.6\nKEY_RISK: Debt\nFAIR VALUE: $150")
+    assert r["fair_value"] == 150.0
+
+
+def test_parse_llm_output_key_risk_space_variant():
+    """Accept KEY RISK (space) as well as KEY_RISK (underscore)."""
+    r = parse_llm_output(
+        "RECOMMENDATION: SELL\nCONFIDENCE: 0.4\nKEY RISK: Revenue decline\nFAIR_VALUE: N/A"
+    )
+    assert r["key_risk"] == "Revenue decline"
+    assert r["fair_value"] is None
+
+
+def test_parse_llm_output_na_fair_value():
+    r = parse_llm_output("RECOMMENDATION: HOLD\nCONFIDENCE: 0.5\nKEY_RISK: None\nFAIR_VALUE: N/A")
+    assert r["fair_value"] is None
+
+
+def test_parse_llm_output_confidence_percentage():
+    """Accept confidence expressed as 85 (percent scale) and normalise to 0.85."""
+    r = parse_llm_output("RECOMMENDATION: BUY\nCONFIDENCE: 85\nKEY_RISK: x\nFAIR_VALUE: N/A")
+    assert r["confidence"] == 0.85
+
+
+def test_parse_llm_output_missing_fields():
+    r = parse_llm_output("Some random text with no structured block.")
+    assert r["recommendation"] is None
+    assert r["confidence"] is None
+    assert r["key_risk"] is None
+    assert r["fair_value"] is None
