@@ -23,7 +23,7 @@ structlog==25.5.0
 python-json-logger==4.0.0
 
 # Configuration
-pydantic-settings==2.12.0
+pydantic-settings==2.13.0
 python-dotenv==1.2.1
 
 # Web UI
