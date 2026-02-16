@@ -19,11 +19,14 @@ MCPFolio is a local-first, autonomous financial analyst that uses MCP (Model Con
 
 ### MCP Data Server (`src/server/finance.py`)
 Uses stdio transport layer. Exposes:
-- `get_market_snapshot(ticker)`: Current price, volume, 52-week volatility, fundamentals
+- `get_market_snapshot(ticker)`: Current price, volume, 52-week volatility, fundamentals, `quote_type`
 - `get_sentiment_data(ticker)`: Institutional analyst ratings
 - `get_news(ticker, count)`: Recent news articles
 - `get_trend_data(ticker, period)`: Historical price data for charts
 - `get_fund_info(ticker)`: ETF/Mutual Fund holdings and sectors
+- `get_earnings_calendar(ticker)`: Next earnings date, EPS estimate, `earnings_imminent` flag (≤7 days)
+- `get_macro_context()`: S&P 500 YTD, VIX level + market regime, 10-year Treasury yield; 30-min TTL cache
+- `get_sector_peers(ticker)`: Top 5 peer companies in the same sector via `yf.Sector`
 
 ### LangGraph State Machine (`src/graph/`)
 
@@ -42,8 +45,8 @@ Uses stdio transport layer. Exposes:
 START
   └─► parse_query
         └─► [route_after_parse]
-              ├─► "single"  → prefetch         → agent → [should_continue] → tools ↺ → END
-              ├─► "compare" → prefetch_compare  → agent → END
+              ├─► "single"  → prefetch → enrich  → agent → [should_continue] → tools ↺ → END
+              ├─► "compare" → prefetch_compare    → agent → END
               └─► "chat"    → agent → [should_continue] → tools ↺ → END
 ```
 
@@ -56,6 +59,7 @@ All nodes are created via factory functions so they capture `model` and `tools_b
 | `make_parse_query_node()` | Regex-extracts uppercase ticker tokens from the last user message; sets `tickers` and `mode` |
 | `make_prefetch_node(tools_by_name)` | Fires 3 parallel MCP calls (snapshot, sentiment, news) for a single ticker; populates state and adds a context `HumanMessage` |
 | `make_prefetch_compare_node(tools_by_name)` | Fires 6 parallel MCP calls (3 per ticker) for a two-ticker comparison; adds a side-by-side context `HumanMessage` |
+| `make_enrich_node(tools_by_name)` | Data-aware enrichment for single-ticker path. Always fetches macro context. Branches: ETF → fund holdings; stock → earnings calendar + sector peers; ≥2 failed tools → data-caveat warning; earnings ≤7 days → catalyst alert |
 | `make_agent_node(model, tools)` | LLM reasoning node; injects `SYSTEM_PROMPT` (+ `PREFETCH_NOTICE` when prefetch is done) at invocation time |
 
 #### Graph Edges (`src/graph/edges.py`)

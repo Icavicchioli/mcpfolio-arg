@@ -120,9 +120,11 @@ def clear_finance_caches():
 
     finance_mod._SNAPSHOT_CACHE.clear()
     finance_mod._SENTIMENT_CACHE.clear()
+    finance_mod._MACRO_CACHE.clear()
     yield
     finance_mod._SNAPSHOT_CACHE.clear()
     finance_mod._SENTIMENT_CACHE.clear()
+    finance_mod._MACRO_CACHE.clear()
 
 
 @pytest.fixture
@@ -149,5 +151,20 @@ def finance_tools():
             finance_mod.get_fund_info.fn
             if hasattr(finance_mod.get_fund_info, "fn")
             else finance_mod.get_fund_info
+        ),
+        "get_earnings_calendar": (
+            finance_mod.get_earnings_calendar.fn
+            if hasattr(finance_mod.get_earnings_calendar, "fn")
+            else finance_mod.get_earnings_calendar
+        ),
+        "get_macro_context": (
+            finance_mod.get_macro_context.fn
+            if hasattr(finance_mod.get_macro_context, "fn")
+            else finance_mod.get_macro_context
+        ),
+        "get_sector_peers": (
+            finance_mod.get_sector_peers.fn
+            if hasattr(finance_mod.get_sector_peers, "fn")
+            else finance_mod.get_sector_peers
         ),
     }
