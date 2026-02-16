@@ -23,8 +23,8 @@ from src.health import HealthCheck
 from src.logging_config import get_logger
 
 app = typer.Typer(
-    name="quant-ollama",
-    help="🤖 Quant-Ollama: Local-first autonomous financial analyst",
+    name="mcpfolio",
+    help="🤖 MCPFolio: Local-first autonomous financial analyst",
     add_completion=True,
 )
 
@@ -171,7 +171,7 @@ def interactive():
     """Start interactive analysis session"""
     console.print(
         Panel.fit(
-            "[bold cyan]Quant-Ollama Interactive Mode[/bold cyan]\n\n"
+            "[bold cyan]MCPFolio Interactive Mode[/bold cyan]\n\n"
             "Type a ticker symbol to analyze (or 'quit' to exit)",
             border_style="cyan",
         )
@@ -179,7 +179,7 @@ def interactive():
 
     while True:
         try:
-            ticker = Prompt.ask("\n[bold cyan]quant-ollama>[/bold cyan]", default="AAPL")
+            ticker = Prompt.ask("\n[bold cyan]mcpfolio>[/bold cyan]", default="AAPL")
 
             if ticker.lower() in ("quit", "exit", "q"):
                 if Confirm.ask("[yellow]Exit interactive mode?[/yellow]"):
@@ -227,7 +227,7 @@ async def _run_analysis(ticker: str, include_news: bool, include_sentiment: bool
     except httpx.ConnectError:
         console.print(
             "[red]✗ Cannot connect to API server[/red]\n"
-            "[yellow]Start the web server with:[/yellow] [cyan]quant-ollama web[/cyan]"
+            "[yellow]Start the web server with:[/yellow] [cyan]mcpfolio web[/cyan]"
         )
         return None
     except Exception as e:

@@ -1,11 +1,11 @@
-# Makefile for Quant-Ollama-Analyst
+# Makefile for MCPFolio
 # Professional development workflow automation
 
 .PHONY: help install install-dev test lint format type-check clean build docs pre-commit
 
 # Default target
 help:
-	@echo "Quant-Ollama-Analyst - Development Commands"
+	@echo "MCPFolio - Development Commands"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make install          Install production dependencies"

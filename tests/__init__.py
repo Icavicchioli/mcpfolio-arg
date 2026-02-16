@@ -1,1 +1,1 @@
-"""Test suite for Quant-Ollama-Analyst"""
+"""Test suite for MCPFolio"""

@@ -1,12 +1,12 @@
 # Security
 
-Quant-Ollama is a single-user local application. It binds to `localhost` by default and is not designed for networked or multi-user deployment.
+MCPFolio is a single-user local application. It binds to `localhost` by default and is not designed for networked or multi-user deployment.
 
 ## Reporting a Vulnerability
 
 Do not open a public GitHub Issue for security vulnerabilities.
 
-Use [GitHub's private vulnerability reporting](https://github.com/adkarp/quant-ollama-analyst/security/advisories/new) or email the maintainer directly (contact visible in your fork/clone context).
+Use [GitHub's private vulnerability reporting](https://github.com/adkarp/mcpfolio/security/advisories/new) or email the maintainer directly (contact visible in your fork/clone context).
 
 Include a description of the vulnerability, steps to reproduce, and potential impact.
 
@@ -40,7 +40,7 @@ data/portfolio.enc
 
 - **Network**: If you expose port 8000 beyond localhost (e.g. `--host 0.0.0.0`), all endpoints are accessible without authentication. Don't do this on untrusted networks.
 - **Process memory**: The session key and decrypted portfolio are in Python process memory while the portfolio is unlocked.
-- **Log files**: `logs/quant-ollama.log` contains ticker symbols and timing data, never holdings or passwords.
+- **Log files**: `logs/mcpfolio.log` contains ticker symbols and timing data, never holdings or passwords.
 
 ---
 

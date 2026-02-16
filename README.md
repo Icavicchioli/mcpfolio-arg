@@ -1,6 +1,6 @@
-# Quant-Ollama
+# MCPFolio
 
-[![CI](https://github.com/adkarp/quant-ollama-analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/adkarp/quant-ollama-analyst/actions/workflows/ci.yml)
+[![CI](https://github.com/adkarp/mcpfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/adkarp/mcpfolio/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: Public Domain](https://img.shields.io/badge/license-Public%20Domain-brightgreen)](#license)
 
@@ -8,7 +8,7 @@
 
 **A local-first, privacy-preserving financial analyst powered by a local LLM.**
 
-Quant-Ollama connects a locally-running Ollama model to live market data through the Model Context Protocol (MCP), producing structured risk assessments, AI-written analysis, institutional sentiment breakdowns, and curated news — all without sending your data to any external AI service.
+MCPFolio connects a locally-running Ollama model to live market data through the Model Context Protocol (MCP), producing structured risk assessments, AI-written analysis, institutional sentiment breakdowns, and curated news — all without sending your data to any external AI service.
 
 ---
 
@@ -129,7 +129,7 @@ The salt is stored alongside the ciphertext. The password is never persisted. Th
 | Data | yfinance, pandas |
 | Crypto | cryptography (Fernet / PBKDF2HMAC) |
 | Logging | structlog, rotating file handler |
-| Config | pydantic-settings (env vars with `QUANT_` prefix) |
+| Config | pydantic-settings (env vars with `MCPFOLIO_` prefix) |
 | Testing | pytest, pytest-asyncio |
 | CI | GitHub Actions |
 
@@ -148,12 +148,12 @@ The salt is stored alongside the ciphertext. The password is never persisted. Th
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/adkarp/quant-ollama-analyst.git
-cd quant-ollama-analyst
+git clone https://github.com/adkarp/mcpfolio.git
+cd mcpfolio
 
 # 2. Create and activate the conda environment
-conda create -n quant-ollama-analyst python=3.11 -y
-conda activate quant-ollama-analyst
+conda create -n mcpfolio python=3.11 -y
+conda activate mcpfolio
 
 # 3. Install Python dependencies
 pip install -r requirements.txt
@@ -176,12 +176,12 @@ cd ../../..
 bash scripts/start-dashboard.sh
 ```
 
-The script activates the `quant-ollama-analyst` conda environment automatically, checks that Ollama is running, starts the FastAPI backend, waits for a healthy response, then opens **http://localhost:8000** in your browser.
+The script activates the `mcpfolio` conda environment automatically, checks that Ollama is running, starts the FastAPI backend, waits for a healthy response, then opens **http://localhost:8000** in your browser.
 
 ### CLI mode
 
 ```bash
-conda activate quant-ollama-analyst
+conda activate mcpfolio
 python src/main.py --ticker AAPL
 ```
 
@@ -199,19 +199,19 @@ Starts the MCP finance server over stdio for direct tool testing.
 
 ## Configuration
 
-All settings are controlled via environment variables with the `QUANT_` prefix, or via a `.env` file in the project root. See `.env.example` for the full list.
+All settings are controlled via environment variables with the `MCPFOLIO_` prefix, or via a `.env` file in the project root. See `.env.example` for the full list.
 
 | Variable | Default | Description |
 |---|---|---|
-| `QUANT_OLLAMA_MODEL` | `llama3.2:3b` | Ollama model name |
-| `QUANT_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `QUANT_OLLAMA_TIMEOUT` | `120` | LLM request timeout (seconds) |
-| `QUANT_OLLAMA_TEMPERATURE` | `0.7` | LLM sampling temperature (0.0–2.0) |
-| `QUANT_LOG_LEVEL` | `INFO` | Log verbosity |
-| `QUANT_LOG_JSON_FORMAT` | `true` | JSON structured logging |
-| `QUANT_DATA_DIR` | `data` | Directory for persistent data (watchlist, portfolio) |
-| `QUANT_YFINANCE_CACHE_TTL` | `300` | Market data cache TTL in seconds |
-| `QUANT_ENABLE_CORS` | `false` | Enable CORS headers |
+| `MCPFOLIO_OLLAMA_MODEL` | `llama3.2:3b` | Ollama model name |
+| `MCPFOLIO_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
+| `MCPFOLIO_OLLAMA_TIMEOUT` | `120` | LLM request timeout (seconds) |
+| `MCPFOLIO_OLLAMA_TEMPERATURE` | `0.7` | LLM sampling temperature (0.0–2.0) |
+| `MCPFOLIO_LOG_LEVEL` | `INFO` | Log verbosity |
+| `MCPFOLIO_LOG_JSON_FORMAT` | `true` | JSON structured logging |
+| `MCPFOLIO_DATA_DIR` | `data` | Directory for persistent data (watchlist, portfolio) |
+| `MCPFOLIO_YFINANCE_CACHE_TTL` | `300` | Market data cache TTL in seconds |
+| `MCPFOLIO_ENABLE_CORS` | `false` | Enable CORS headers |
 
 ---
 
@@ -243,7 +243,7 @@ pytest --cov=src --cov-report=term-missing
 ## Project Structure
 
 ```
-quant-ollama-analyst/
+mcpfolio/
 ├── src/
 │   ├── main.py                  # CLI entry point
 │   ├── config.py                # Pydantic settings (env vars)
@@ -283,7 +283,7 @@ quant-ollama-analyst/
 
 ### This project
 
-Quant-Ollama is released into the **public domain**. You may use, copy, modify, and distribute this software for any purpose, without restriction and without attribution requirement.
+MCPFolio is released into the **public domain**. You may use, copy, modify, and distribute this software for any purpose, without restriction and without attribution requirement.
 
 Where public domain dedication is not legally recognized, the project is licensed under the [Creative Commons Zero v1.0 Universal (CC0-1.0)](https://creativecommons.org/publicdomain/zero/1.0/) license.
 
@@ -293,7 +293,7 @@ This project depends on software distributed under their own licenses. Notable o
 
 | Dependency | License | Notes |
 |---|---|---|
-| **Ollama** | [MIT License](https://github.com/ollama/ollama/blob/main/LICENSE) | The Ollama server binary must be separately downloaded from [ollama.com](https://ollama.com). Quant-Ollama communicates with it via its REST API but does not bundle it. |
+| **Ollama** | [MIT License](https://github.com/ollama/ollama/blob/main/LICENSE) | The Ollama server binary must be separately downloaded from [ollama.com](https://ollama.com). MCPFolio communicates with it via its REST API but does not bundle it. |
 | **LLM weights** | Varies per model | Models (e.g., Llama 3.2) are downloaded separately via `ollama pull`. Meta's Llama 3 models are subject to the [Meta Llama 3 Community License](https://www.llama.com/llama3/license/). Review the license for your chosen model. |
 | **FastAPI** | MIT | |
 | **yfinance** | Apache 2.0 | Market data sourced from Yahoo Finance. Subject to Yahoo Finance's [Terms of Service](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html). Commercial use may require a data license. |
@@ -319,10 +319,10 @@ All direct dependencies and their licenses are listed in `requirements.txt`. The
 
 ## Contributing
 
-Quant-Ollama was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev) from the ground up. That's not a footnote — it's the intended workflow, and **vibe-coded pull requests are explicitly welcome**.
+MCPFolio was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev) from the ground up. That's not a footnote — it's the intended workflow, and **vibe-coded pull requests are explicitly welcome**.
 
 If you built something cool by prompting an AI pair programmer, opened a terminal, and things worked, that counts. The only bar is that the code works and doesn't break existing behavior. See [CONTRIBUTING.md](CONTRIBUTING.md) for the mechanics.
 
 ## Disclaimer
 
-Quant-Ollama is an educational and research tool. Nothing it produces constitutes financial advice. Market data sourced via yfinance may be delayed or inaccurate. Always verify information independently before making investment decisions.
+MCPFolio is an educational and research tool. Nothing it produces constitutes financial advice. Market data sourced via yfinance may be delayed or inaccurate. Always verify information independently before making investment decisions.

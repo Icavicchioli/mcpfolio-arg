@@ -14,9 +14,9 @@ NC='\033[0m'
 echo -e "${YELLOW}>>> Quick Check${NC}"
 
 # Check if conda environment is activated
-if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "quant-ollama-analyst" ]]; then
+if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "mcpfolio" ]]; then
     source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate quant-ollama-analyst
+    conda activate mcpfolio
 fi
 
 # Run formatters

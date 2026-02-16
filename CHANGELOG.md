@@ -88,7 +88,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Analysis history per session
 - Export endpoint (`GET /api/export/{ticker}`) — JSON and Markdown formats
 - WebSocket endpoint (`ws://localhost:8000/ws/analysis`) for streaming analysis progress
-- Pydantic-settings configuration with `QUANT_` env var prefix (`.env` support)
+- Pydantic-settings configuration with `MCPFOLIO_` env var prefix (`.env` support)
 - Structured JSON logging with rotating file handler
 - `@with_retry()` and `@circuit_breaker()` decorators on all MCP tools for yfinance rate limit resilience
 - Ollama connection pool (`src/ollama_pool.py`) for concurrent request handling
@@ -97,7 +97,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-[Unreleased]: https://github.com/adkarp/quant-ollama-analyst/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/adkarp/quant-ollama-analyst/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/adkarp/quant-ollama-analyst/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/adkarp/quant-ollama-analyst/releases/tag/v0.1.0
+[Unreleased]: https://github.com/adkarp/mcpfolio/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/adkarp/mcpfolio/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/adkarp/mcpfolio/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/adkarp/mcpfolio/releases/tag/v0.1.0

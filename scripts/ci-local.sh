@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${YELLOW}========================================${NC}"
-echo -e "${YELLOW}  Quant-Ollama Local CI Pipeline${NC}"
+echo -e "${YELLOW}  MCPFolio Local CI Pipeline${NC}"
 echo -e "${YELLOW}========================================${NC}"
 echo ""
 
@@ -34,10 +34,10 @@ error() {
 }
 
 # Check if conda environment is activated
-if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "quant-ollama-analyst" ]]; then
-    echo -e "${YELLOW}Activating conda environment: quant-ollama-analyst${NC}"
+if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "mcpfolio" ]]; then
+    echo -e "${YELLOW}Activating conda environment: mcpfolio${NC}"
     source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate quant-ollama-analyst || error "Failed to activate conda environment"
+    conda activate mcpfolio || error "Failed to activate conda environment"
 fi
 
 # Step 1: Pre-commit hooks

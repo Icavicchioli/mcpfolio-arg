@@ -1,4 +1,4 @@
-"""Prompts for the Quant-Ollama Financial Analyst."""
+"""Prompts for the MCPFolio Financial Analyst."""
 
 SYSTEM_PROMPT = """You are a long-term investment analyst evaluating stocks on a 3-5+ year horizon.
 

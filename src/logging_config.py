@@ -1,5 +1,5 @@
 """
-Structured logging configuration for Quant-Ollama-Analyst
+Structured logging configuration for MCPFolio
 
 Uses structlog for structured, JSON-formatted logs with:
 - Request correlation IDs
@@ -89,7 +89,7 @@ def setup_logging(
     except ImportError:
         # Settings not available, use defaults
         log_level = log_level or "INFO"
-        log_file = log_file or "logs/quant-ollama.log"
+        log_file = log_file or "logs/mcpfolio.log"
         max_bytes = max_bytes or 10_000_000
         backup_count = backup_count or 5
         json_logs = json_logs if json_logs is not None else True

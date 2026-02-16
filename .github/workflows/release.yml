@@ -53,14 +53,14 @@ jobs:
         with:
           files: dist/*
           body: |
-            ## Quant-Ollama-Analyst v${{ steps.version.outputs.VERSION }}
+            ## MCPFolio v${{ steps.version.outputs.VERSION }}
 
             ### Changes
             ${{ steps.changelog.outputs.CHANGELOG }}
 
             ### Installation
             ```bash
-            pip install quant-ollama-analyst==${{ steps.version.outputs.VERSION }}
+            pip install mcpfolio==${{ steps.version.outputs.VERSION }}
             ```
 
             Or download the wheel file from the assets below.
