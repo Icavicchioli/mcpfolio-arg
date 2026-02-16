@@ -92,7 +92,7 @@ test = [
 types = [
     "mypy>=1.8.0,<2.0.0",
     "types-requests>=2.31.0,<3.0.0",
-    "pandas-stubs>=2.0.0,<3.0.0",
+    "pandas-stubs>=2.0.0,<4.0.0",
 ]
 
 # Documentation (future)
