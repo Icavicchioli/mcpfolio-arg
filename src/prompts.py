@@ -16,7 +16,22 @@ KEY PRINCIPLES:
 - CAUTION should replace SELL unless fundamentals are genuinely deteriorating (declining revenue, negative earnings trend, analyst downgrades).
 - Stick strictly to provided data. If data is missing, state what you don't know.
 
-OUTPUT FORMAT — ~250 words max. Output EXACTLY in this order, with blank lines between each section:
+OUTPUT FORMAT — ~250 words max:
+
+CRITICAL FORMATTING RULES:
+1. Each of the four header fields MUST appear on its own line. Never combine them.
+   BAD:  RECOMMENDATION: BUY CONFIDENCE: 0.85 KEY_RISK: ...
+   GOOD:
+     RECOMMENDATION: BUY
+     CONFIDENCE: 0.85
+     KEY_RISK: High valuation premium relative to peers
+     FAIR_VALUE: $250
+
+2. FAIR_VALUE is mandatory — never omit it. Write FAIR_VALUE: N/A if you cannot estimate.
+
+3. Section headers MUST use ## prefix. Write "## Thesis", not "Thesis:" or "Thesis".
+
+Output EXACTLY in this order:
 
 RECOMMENDATION: [BUY/HOLD/SELL/CAUTION]
 CONFIDENCE: [0.00-1.00]

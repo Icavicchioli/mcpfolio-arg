@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from src.config import get_settings
 from src.logging_config import get_logger, start_request
+from src.persistence import ThesisStore
 from src.prompts import (
     COMPARISON_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
@@ -228,6 +229,7 @@ class SessionManager:
         self.watchlist_path = self.data_dir / "watchlist.json"
         self.watchlist: list[WatchlistItem] = []
         self.portfolio_manager = SecurePortfolioManager(self.data_dir)
+        self.thesis_store = ThesisStore(self.data_dir)
         self.analysis_history: list[AnalysisResponse] = []
         self.max_history = 50
 
@@ -299,6 +301,13 @@ class SessionManager:
             removed = self.analysis_history.pop()
             logger.debug("analysis_removed_from_history", ticker=removed.ticker)
         logger.info("analysis_added_to_history", ticker=analysis.ticker)
+
+        # Persist to encrypted thesis store if unlocked
+        if self.thesis_store.is_unlocked():
+            try:
+                self.thesis_store.save(analysis)
+            except Exception as e:
+                logger.error("thesis_save_failed", ticker=analysis.ticker, error=str(e))
 
     def get_analysis(self, ticker: str) -> AnalysisResponse | None:
         """Get most recent analysis for ticker"""
@@ -1014,17 +1023,19 @@ async def remove_from_watchlist(ticker: str):
 
 @app.post("/api/portfolio/unlock")
 async def unlock_portfolio(password: str = Body(..., embed=True)):
-    """Unlock the portfolio session"""
+    """Unlock the portfolio session (also unlocks thesis history)"""
     success = session.portfolio_manager.unlock(password)
     if success:
+        session.thesis_store.unlock(password)
         return {"status": "unlocked"}
     raise HTTPException(status_code=401, detail="Invalid password")
 
 
 @app.post("/api/portfolio/lock")
 async def lock_portfolio():
-    """Lock the portfolio session"""
+    """Lock the portfolio session (also locks thesis history)"""
     session.portfolio_manager.lock()
+    session.thesis_store.lock()
     return {"status": "locked"}
 
 
@@ -1087,6 +1098,22 @@ async def get_analysis_history():
             for analysis in session.analysis_history
         ]
     }
+
+
+@app.get("/api/thesis")
+async def get_thesis_history():
+    """Get recent thesis history across all tickers (requires portfolio unlock)"""
+    if not session.thesis_store.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+    return {"thesis": session.thesis_store.get_recent(200)}
+
+
+@app.get("/api/thesis/{ticker}")
+async def get_thesis_for_ticker(ticker: str):
+    """Get thesis history for a single ticker (requires portfolio unlock)"""
+    if not session.thesis_store.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+    return {"thesis": session.thesis_store.get_history(ticker.upper(), 50)}
 
 
 @app.get("/api/export/{ticker}")

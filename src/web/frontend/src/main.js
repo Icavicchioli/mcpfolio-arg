@@ -43,7 +43,8 @@ const state = {
   isUnlocked: false,
   activeTab: 'dashboard',
   marketData: {},     // Cache for lightweight price data
-  currentNews: []     // Full news cache — sliced on render
+  currentNews: [],    // Full news cache — sliced on render
+  thesis: []          // Thesis history (populated after portfolio unlock)
 };
 
 // --- Initialization ---
@@ -517,6 +518,7 @@ async function handleUnlock(e) {
       document.getElementById('unlock-modal').classList.add('hidden');
       document.getElementById('portfolio-password').value = '';
       updatePortfolioStateUI();
+      fetchThesisHistory();
     } else {
       alert('Invalid password');
     }
@@ -530,6 +532,7 @@ async function handleLock() {
     await fetch('/api/portfolio/lock', { method: 'POST' });
     state.isUnlocked = false;
     state.portfolio = [];
+    state.thesis = [];
     updatePortfolioStateUI();
   } catch (err) {
     console.error('Lock failed:', err);
@@ -956,3 +959,77 @@ function getRiskColor(score) {
   if (score > 30) return '#f59e0b';
   return '#22c55e';
 }
+
+// --- Thesis History ---
+
+async function fetchThesisHistory() {
+  try {
+    const res = await fetch('/api/thesis');
+    if (!res.ok) return; // locked or error — silently skip
+    const data = await res.json();
+    state.thesis = data.thesis || [];
+    renderThesisHistory();
+  } catch (err) {
+    console.error('Failed to fetch thesis history:', err);
+  }
+}
+
+function renderThesisHistory() {
+  const container = document.getElementById('thesis-history-body');
+  if (!container) return;
+
+  if (!state.thesis || state.thesis.length === 0) {
+    container.innerHTML = '<p class="placeholder" style="margin-top:1rem;">No analyses recorded yet.</p>';
+    return;
+  }
+
+  const REC_COLORS = {
+    BUY: '#22c55e',
+    HOLD: '#f59e0b',
+    SELL: '#ef4444',
+    CAUTION: '#f97316'
+  };
+
+  const rows = state.thesis.map((record, idx) => {
+    const date = record.timestamp ? record.timestamp.split('T')[0] : '—';
+    const rec = (record.recommendation || '—').toUpperCase();
+    const recColor = REC_COLORS[rec] || '#64748b';
+    const conf = record.confidence != null ? (record.confidence * 100).toFixed(0) + '%' : '—';
+    const price = record.price != null ? '$' + record.price.toFixed(2) : '—';
+    const keyRisk = record.key_risk ? record.key_risk.slice(0, 80) + (record.key_risk.length > 80 ? '…' : '') : '—';
+    const analysisId = `thesis-expand-${idx}`;
+
+    return `
+      <div class="thesis-row" onclick="toggleThesisExpand('${analysisId}')">
+        <div class="thesis-row-main">
+          <span class="thesis-date">${date}</span>
+          <span class="thesis-ticker">${record.ticker}</span>
+          <span class="thesis-rec-badge" style="background:${recColor}22;color:${recColor};border-color:${recColor}44">${rec}</span>
+          <span class="thesis-conf">${conf}</span>
+          <span class="thesis-price">${price}</span>
+          <span class="thesis-risk">${keyRisk}</span>
+        </div>
+        <div class="thesis-expand hidden" id="${analysisId}">
+          ${window.marked ? window.marked.parse(record.ai_analysis || '') : (record.ai_analysis || '').replace(/\n/g, '<br>')}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = `
+    <div class="thesis-header-row">
+      <span>Date</span>
+      <span>Ticker</span>
+      <span>Rec</span>
+      <span>Confidence</span>
+      <span>Price</span>
+      <span>Key Risk</span>
+    </div>
+    ${rows.join('')}
+  `;
+}
+
+window.toggleThesisExpand = (id) => {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('hidden');
+};
