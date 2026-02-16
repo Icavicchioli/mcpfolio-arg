@@ -16,6 +16,7 @@ from config import get_settings
 from graph.edges import route_after_parse, should_continue
 from graph.nodes import (
     make_agent_node,
+    make_enrich_node,
     make_parse_query_node,
     make_prefetch_compare_node,
     make_prefetch_node,
@@ -102,12 +103,14 @@ async def create_agent():
     parse_query_node = make_parse_query_node()
     prefetch_node = make_prefetch_node(tools_by_name)
     prefetch_compare_node = make_prefetch_compare_node(tools_by_name)
+    enrich_node = make_enrich_node(tools_by_name)
     agent_node = make_agent_node(model, tools)
 
     graph = StateGraph(AgentState)
     graph.add_node("parse_query", parse_query_node)
     graph.add_node("prefetch", prefetch_node)
     graph.add_node("prefetch_compare", prefetch_compare_node)
+    graph.add_node("enrich", enrich_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tool_node)
 
@@ -121,7 +124,8 @@ async def create_agent():
             "chat": "agent",
         },
     )
-    graph.add_edge("prefetch", "agent")
+    graph.add_edge("prefetch", "enrich")
+    graph.add_edge("enrich", "agent")
     graph.add_edge("prefetch_compare", "agent")
     graph.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
     graph.add_edge("tools", "agent")
@@ -131,7 +135,7 @@ async def create_agent():
 
     logger.info(
         "agent_creation_complete",
-        nodes=["parse_query", "prefetch", "prefetch_compare", "agent", "tools"],
+        nodes=["parse_query", "prefetch", "enrich", "prefetch_compare", "agent", "tools"],
     )
     return app, client
 
