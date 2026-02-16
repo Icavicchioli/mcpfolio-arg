@@ -119,6 +119,18 @@ async function fetchInitialData() {
     updateWatchlist(),
     updateHistory()
   ]);
+
+  // Auto-analyze the most recently updated watchlist item on startup
+  if (state.watchlist.length > 0) {
+    const sorted = [...state.watchlist].sort((a, b) => {
+      const ta = a.last_updated ? new Date(a.last_updated) : new Date(a.added_at);
+      const tb = b.last_updated ? new Date(b.last_updated) : new Date(b.added_at);
+      return tb - ta;
+    });
+    const autoTicker = sorted[0].ticker;
+    document.getElementById('ticker-input').value = autoTicker;
+    handleAnalyze();
+  }
 }
 
 async function updateWatchlist() {
@@ -161,11 +173,24 @@ async function fetchModels() {
   }
 }
 
+function parseErrorDetail(detail) {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map(e => e.msg || JSON.stringify(e)).join(', ');
+  return JSON.stringify(detail);
+}
+
 async function handleAnalyze() {
   const input = document.getElementById('ticker-input');
-  const ticker = input.value.trim().toUpperCase();
-  if (!ticker) return;
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
 
+  // Detect "AAPL VS MSFT" comparison pattern (tickers up to 10 chars, matching backend limit)
+  const vsMatch = raw.match(/^([A-Z]{1,10})\s+VS\s+([A-Z]{1,10})$/);
+  if (vsMatch) {
+    return handleCompare(vsMatch[1], vsMatch[2]);
+  }
+
+  const ticker = raw;
   state.activeTicker = ticker;
   setLoading(true);
 
@@ -187,7 +212,7 @@ async function handleAnalyze() {
 
     if (!res.ok) {
       const error = await res.json();
-      throw new Error(error.detail || 'Analysis failed');
+      throw new Error(parseErrorDetail(error.detail) || 'Analysis failed');
     }
 
     const data = await res.json();
@@ -202,12 +227,81 @@ async function handleAnalyze() {
   }
 }
 
+async function handleCompare(tickerA, tickerB) {
+  state.activeTicker = null; // comparison has no single active ticker
+  setLoading(true);
+
+  try {
+    const res = await fetch('/api/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker_a: tickerA, ticker_b: tickerB })
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(parseErrorDetail(error.detail) || 'Comparison failed');
+    }
+
+    const data = await res.json();
+    updateCompareUI(data);
+  } catch (err) {
+    alert(`Error: ${err.message}`);
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+function updateCompareUI(data) {
+  const { ticker_a, ticker_b, verdict, ai_analysis, news_a, news_b } = data;
+
+  // Header: show both tickers
+  document.getElementById('ticker-display').textContent = `${ticker_a} vs ${ticker_b}`;
+
+  // Verdict in place of price badge
+  const verdictColors = { [ticker_a]: '#16a34a', [ticker_b]: '#b45309', 'EQUAL': '#475569' };
+  const priceEl = document.getElementById('price-display');
+  priceEl.innerHTML = `<span style="font-size:0.6rem;letter-spacing:0.1em;opacity:0.85;display:block">VERDICT</span>${verdict}`;
+  priceEl.style.background = verdictColors[verdict] || '#475569';
+  priceEl.style.color = '#fff';
+  priceEl.style.border = 'none';
+
+  // Clear snapshot stats — not meaningful for a pair
+  ['volume-display', 'high-display', 'low-display', 'mktcap-display', 'pe-display', 'div-display'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '---';
+  });
+
+  // Reset risk gauge
+  updateRiskChart(0);
+
+  // Hide watchlist button — doesn't apply to a comparison
+  document.getElementById('add-watchlist-btn').style.display = 'none';
+
+  // AI analysis (markdown)
+  const analysisEl = document.getElementById('analysis-text');
+  if (ai_analysis) {
+    analysisEl.innerHTML = window.marked ? window.marked.parse(ai_analysis) : `<p>${ai_analysis.replace(/\n/g, '<br>')}</p>`;
+  } else {
+    analysisEl.innerHTML = '<p class="placeholder">Comparison unavailable.</p>';
+  }
+
+  // News: show ticker_a news (fall back to ticker_b)
+  state.currentNews = news_a || news_b || [];
+  renderNews(state.currentNews);
+}
+
 // --- UI Updates ---
 function updateUI(data) {
   // 1. Market Snapshot
   document.getElementById('ticker-display').textContent = data.ticker;
   state.activePrice = data.market_snapshot.current_price || 0;
-  document.getElementById('price-display').textContent = `$${state.activePrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  const priceEl = document.getElementById('price-display');
+  priceEl.textContent = `$${state.activePrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  priceEl.style.background = '';
+  priceEl.style.color = '';
+  priceEl.style.border = '';
   document.getElementById('volume-display').textContent = (data.market_snapshot.volume || 0).toLocaleString();
   document.getElementById('high-display').textContent = `$${(data.market_snapshot.high_52_week || 0).toFixed(2)}`;
   document.getElementById('low-display').textContent = `$${(data.market_snapshot.low_52_week || 0).toFixed(2)}`;
