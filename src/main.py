@@ -4,18 +4,23 @@ import asyncio
 import os
 import subprocess  # nosec
 import time
-from typing import Annotated, TypedDict
 
 import ollama
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from config import get_settings
-from graph.edges import should_continue
+from graph.edges import route_after_parse, should_continue
+from graph.nodes import (
+    make_agent_node,
+    make_parse_query_node,
+    make_prefetch_compare_node,
+    make_prefetch_node,
+)
+from graph.state import AgentState
 from logging_config import LogTimer, get_logger, start_request
 
 logger = get_logger(__name__)
@@ -47,12 +52,6 @@ class OllamaManager:
             self.proc.terminate()
             self.proc.wait()
             logger.info("ollama_shutdown_complete", pid=self.proc.pid)
-
-
-class AgentState(TypedDict):
-    """State for the financial analyst agent."""
-
-    messages: Annotated[list, add_messages]
 
 
 def get_server_path() -> str:
@@ -96,25 +95,44 @@ async def create_agent():
     tools = await client.get_tools()
     logger.info("mcp_tools_loaded", tool_count=len(tools), tool_names=[t.name for t in tools])
 
+    tools_by_name = {t.name: t for t in tools}
     tool_node = ToolNode(tools)
 
-    def agent_node(state):
-        """Agent reasoning node - decides whether to call tools or respond."""
-        response = model.bind_tools(tools).invoke(state["messages"])
-        return {"messages": [response]}
+    # Build graph nodes via factories
+    parse_query_node = make_parse_query_node()
+    prefetch_node = make_prefetch_node(tools_by_name)
+    prefetch_compare_node = make_prefetch_compare_node(tools_by_name)
+    agent_node = make_agent_node(model, tools)
 
     graph = StateGraph(AgentState)
+    graph.add_node("parse_query", parse_query_node)
+    graph.add_node("prefetch", prefetch_node)
+    graph.add_node("prefetch_compare", prefetch_compare_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tool_node)
 
-    graph.add_edge(START, "agent")
+    graph.add_edge(START, "parse_query")
+    graph.add_conditional_edges(
+        "parse_query",
+        route_after_parse,
+        {
+            "single": "prefetch",
+            "compare": "prefetch_compare",
+            "chat": "agent",
+        },
+    )
+    graph.add_edge("prefetch", "agent")
+    graph.add_edge("prefetch_compare", "agent")
     graph.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
     graph.add_edge("tools", "agent")
 
     checkpointer = MemorySaver()
     app = graph.compile(checkpointer=checkpointer)
 
-    logger.info("agent_creation_complete", nodes=["agent", "tools"])
+    logger.info(
+        "agent_creation_complete",
+        nodes=["parse_query", "prefetch", "prefetch_compare", "agent", "tools"],
+    )
     return app, client
 
 
@@ -131,8 +149,10 @@ async def main():
 A local-first, autonomous financial analyst designed to be your 'Sanity Check' layer.
 Powered by Llama 3.2, LangGraph, and MCP.
 
-Ask for about a stock ticker to get started!
-(e.g., "Tell me about AAPL and recent news associated with it.")
+Ask about a stock ticker to get started!
+  Single ticker:    "Analyze AAPL"
+  Compare tickers:  "Compare AAPL vs MSFT"
+  Conversational:   "What is a P/E ratio?"
 
 Type 'quit' or 'exit' to end the session.
 ----------------------------------------"""

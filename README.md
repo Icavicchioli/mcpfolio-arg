@@ -31,6 +31,7 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 - **Institutional sentiment** — horizontal bar chart of Buy / Strong Buy / Hold / Sell / Strong Sell counts from the most recent analyst ratings period
 - **Market news** — up to 20 recent articles fetched per ticker; article count is adjustable live without re-running the full analysis
 - **Watchlist sidebar** — bookmark tickers for quick one-click re-analysis; prices persist between sessions
+- **Ticker comparison** — `POST /api/compare` fetches data for two tickers in parallel (6 concurrent MCP calls) and returns a structured side-by-side analysis with a BUY verdict
 
 ### Portfolio
 - **Encrypted local storage** — holdings are encrypted with AES-256 (Fernet) using a PBKDF2-derived key; the password never leaves the device
@@ -61,8 +62,8 @@ MCPFolio connects a locally-running Ollama model to live market data through the
                         │ REST (HTTP/JSON)
 ┌───────────────────────▼─────────────────────────────────┐
 │              FastAPI Web Server  (src/web/main.py)       │
-│  /api/analyze · /api/portfolio · /api/watchlist          │
-│  /api/config/models · /api/admin/shutdown                │
+│  /api/analyze · /api/compare · /api/portfolio            │
+│  /api/watchlist · /api/config/models                     │
 └──────────┬──────────────────────┬───────────────────────┘
            │ MCP (stdio)          │ ollama Python client
 ┌──────────▼───────────┐  ┌──────▼──────────────────────┐
@@ -78,6 +79,15 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 └──────────┬───────────┘
            │ yfinance + pandas
      Yahoo Finance API
+```
+
+### CLI LangGraph Flow
+
+```
+START → parse_query → [route_after_parse]
+          ├── "single"  → prefetch (3× parallel MCP) → agent → [tools loop] → END
+          ├── "compare" → prefetch_compare (6× parallel MCP) → agent → END
+          └── "chat"    → agent → [tools loop] → END
 ```
 
 ### MCP Tools (src/server/finance.py)
@@ -182,10 +192,24 @@ The script activates the `mcpfolio` conda environment automatically, checks that
 
 ```bash
 conda activate mcpfolio
-python src/main.py --ticker AAPL
+python src/main.py
 ```
 
-Runs a single-ticker analysis and prints the result to stdout. Does not start the web dashboard.
+Interactive REPL with three modes — market data is prefetched in parallel before the LLM responds:
+
+```
+You: Analyze AAPL                    # single-ticker: 3 parallel MCP calls
+You: Compare AAPL vs MSFT            # comparison: 6 parallel MCP calls, side-by-side verdict
+You: What is a P/E ratio?            # chat: no prefetch, standard ReAct loop
+```
+
+### Dashboard API comparison
+
+```bash
+curl -s -X POST http://localhost:8000/api/compare \
+  -H "Content-Type: application/json" \
+  -d '{"ticker_a": "AAPL", "ticker_b": "MSFT"}' | jq '.verdict'
+```
 
 ### MCP server standalone (for testing)
 
@@ -257,8 +281,9 @@ mcpfolio/
 │   ├── server/
 │   │   └── finance.py           # MCP finance server (5 tools)
 │   ├── graph/
-│   │   ├── nodes.py             # LangGraph ReAct nodes
-│   │   └── edges.py             # LangGraph state transitions
+│   │   ├── state.py             # AgentState TypedDict
+│   │   ├── nodes.py             # LangGraph node factory functions
+│   │   └── edges.py             # LangGraph state transitions + routing
 │   ├── tools/
 │   │   ├── lazy_loader.py       # MCP tool lazy initialization
 │   │   └── wrappers.py          # @with_retry, @circuit_breaker decorators

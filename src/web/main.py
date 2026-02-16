@@ -24,7 +24,12 @@ from pydantic import BaseModel, Field
 
 from src.config import get_settings
 from src.logging_config import get_logger, start_request
-from src.prompts import SYSTEM_PROMPT
+from src.prompts import (
+    COMPARISON_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    format_comparison_context,
+    format_single_context,
+)
 from src.startup import quick_startup, shutdown
 
 logger = get_logger(__name__)
@@ -35,7 +40,7 @@ settings = get_settings()
 class AnalysisRequest(BaseModel):
     """Request for stock analysis"""
 
-    ticker: str = Field(..., description="Stock ticker symbol", min_length=1, max_length=10)
+    ticker: str = Field(..., description="Stock ticker symbol", min_length=1, max_length=20)
     include_news: bool = Field(True, description="Include news analysis")
     include_sentiment: bool = Field(True, description="Include sentiment data")
     include_fundamentals: bool = Field(True, description="Include fundamental data")
@@ -96,6 +101,31 @@ class HealthResponse(BaseModel):
     ollama: dict
     model: dict
     timestamp: str
+
+
+class ComparisonRequest(BaseModel):
+    """Request for side-by-side ticker comparison"""
+
+    ticker_a: str = Field(..., description="First ticker symbol", min_length=1, max_length=10)
+    ticker_b: str = Field(..., description="Second ticker symbol", min_length=1, max_length=10)
+    include_news: bool = Field(True, description="Include news analysis")
+    include_sentiment: bool = Field(True, description="Include sentiment data")
+
+
+class ComparisonResponse(BaseModel):
+    """Side-by-side ticker comparison response"""
+
+    ticker_a: str
+    ticker_b: str
+    timestamp: datetime
+    data_a: dict
+    data_b: dict
+    sentiment_a: list[dict] | None = None
+    sentiment_b: list[dict] | None = None
+    news_a: list[dict] | None = None
+    news_b: list[dict] | None = None
+    ai_analysis: str
+    verdict: str  # ticker_a value, ticker_b value, or "EQUAL"
 
 
 class SecurePortfolioManager:
@@ -397,41 +427,58 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
     # Find the tools we need
     tool_map = {tool.name: tool for tool in tools}
 
-    # Get market snapshot
+    # Locate tools
     market_snapshot_tool = tool_map.get("get_market_snapshot")
     if not market_snapshot_tool:
         raise HTTPException(status_code=500, detail="Market snapshot tool not available")
 
-    raw_market_data = await market_snapshot_tool.ainvoke({"ticker": request.ticker})
-    market_data = parse_tool_result(raw_market_data)
+    sentiment_tool = tool_map.get("get_sentiment_data") if request.include_sentiment else None
+    news_tool = tool_map.get("get_news") if request.include_news else None
 
-    if market_data.get("error"):
+    async def _noop():
+        return None
+
+    # Fetch market data, sentiment, and news in parallel
+    _gather_results: tuple[Any, Any, Any] = await asyncio.gather(
+        market_snapshot_tool.ainvoke({"ticker": request.ticker}),
+        sentiment_tool.ainvoke({"ticker": request.ticker}) if sentiment_tool else _noop(),
+        (
+            news_tool.ainvoke({"ticker": request.ticker, "count": request.max_news})
+            if news_tool
+            else _noop()
+        ),
+        return_exceptions=True,
+    )
+    raw_market_data: Any
+    raw_sentiment: Any
+    raw_news: Any
+    raw_market_data, raw_sentiment, raw_news = _gather_results
+
+    market_data = (
+        parse_tool_result(raw_market_data)
+        if not isinstance(raw_market_data, Exception)
+        else {"error": str(raw_market_data)}
+    )
+
+    if market_data.get("error") or isinstance(raw_market_data, Exception):
         raise HTTPException(
             status_code=400,
             detail=f"Failed to get market data: {market_data.get('message', market_data.get('error', 'Unknown error'))}",
         )
 
-    # Get sentiment data
+    # Parse sentiment
     sentiment_data = None
-    if request.include_sentiment:
-        sentiment_tool = tool_map.get("get_sentiment_data")
-        if sentiment_tool:
-            raw_sentiment = await sentiment_tool.ainvoke({"ticker": request.ticker})
-            sentiment_result = parse_tool_result(raw_sentiment)
-            if not sentiment_result.get("error"):
-                sentiment_data = sentiment_result.get("ratings", [])
+    if sentiment_tool and raw_sentiment is not None and not isinstance(raw_sentiment, Exception):
+        sentiment_result = parse_tool_result(raw_sentiment)
+        if not sentiment_result.get("error"):
+            sentiment_data = sentiment_result.get("ratings", [])
 
-    # Get news
+    # Parse news
     news_data = None
-    if request.include_news:
-        news_tool = tool_map.get("get_news")
-        if news_tool:
-            raw_news = await news_tool.ainvoke(
-                {"ticker": request.ticker, "count": request.max_news}
-            )
-            news_result = parse_tool_result(raw_news)
-            if not news_result.get("error"):
-                news_data = news_result.get("news", [])
+    if news_tool and raw_news is not None and not isinstance(raw_news, Exception):
+        news_result = parse_tool_result(raw_news)
+        if not news_result.get("error"):
+            news_data = news_result.get("news", [])
 
     # Multi-factor risk score: volatility (40%), analyst sentiment (30%), P/E (30%)
     volatility = market_data.get("volatility_52_week_pct", 0) / 100
@@ -480,66 +527,15 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
 
     risk_score = max(0.0, min(100.0, vol_score * 0.4 + sentiment_score * 0.3 + pe_score * 0.3))
 
-    # --- Refactored AI Analysis ---
+    # --- AI Analysis ---
     from langchain_ollama import ChatOllama
 
     ollama_config = settings.get_ollama_config()
-    # Ensure low temperature as requested
     ollama_config["temperature"] = 0.1
     llm = ChatOllama(**ollama_config)
 
-    # Construct a structured summary for the LLM (avoids dumping raw JSON)
-    price = market_data.get("current_price", "N/A")
-    mkt_cap = market_data.get("market_cap")
-    mkt_cap_str = (
-        f"${mkt_cap / 1e9:.1f}B"
-        if mkt_cap and mkt_cap > 1e9
-        else f"${mkt_cap / 1e6:.0f}M" if mkt_cap else "N/A"
-    )
-    pe_display = pe_ratio if pe_ratio is not None else "N/A"
-    div_yield = market_data.get("dividend_yield")
-    div_str = f"{div_yield * 100:.2f}%" if div_yield else "None"
-    vol_pct = market_data.get("volatility_52_week_pct", 0)
-    week_high = market_data.get("fifty_two_week_high", "N/A")
-    week_low = market_data.get("fifty_two_week_low", "N/A")
-    change_pct = market_data.get("change_percent", 0)
-    eps = market_data.get("eps") or market_data.get("trailing_eps") or "N/A"
-    rev = market_data.get("revenue")
-    rev_str = f"${rev / 1e9:.1f}B" if rev and rev > 1e9 else f"${rev / 1e6:.0f}M" if rev else "N/A"
-
-    context = f"""MARKET DATA:
-- Price: ${price} ({change_pct:+.2f}% today)
-- Market Cap: {mkt_cap_str}
-- P/E Ratio: {pe_display}
-- EPS: {eps}
-- Revenue: {rev_str}
-- Dividend Yield: {div_str}
-- 52-Week Range: ${week_low} – ${week_high} (volatility: {vol_pct:.1f}%)
-"""
-
-    if sentiment_data:
-        ratings_summary = []
-        for r in sentiment_data:
-            firm = r.get("firm", "Unknown")
-            grade = r.get("grade") or r.get("action") or "N/A"
-            ratings_summary.append(f"  - {firm}: {grade}")
-        context += (
-            f"\nANALYST RATINGS ({len(sentiment_data)} recent):\n"
-            + "\n".join(ratings_summary)
-            + "\n"
-        )
-    else:
-        context += "\nANALYST RATINGS: No data available.\n"
-
-    if news_data:
-        news_lines = []
-        for n in news_data[:5]:
-            title = n.get("title", "")
-            source = n.get("publisher") or n.get("source") or ""
-            news_lines.append(f"  - {title}" + (f" ({source})" if source else ""))
-        context += "\nRECENT NEWS:\n" + "\n".join(news_lines) + "\n"
-    else:
-        context += "\nRECENT NEWS: No data available.\n"
+    # Build structured context string using shared formatter
+    context = format_single_context(request.ticker.upper(), market_data, sentiment_data, news_data)
 
     # Portfolio context if unlocked
     if session.portfolio_manager.is_unlocked():
@@ -724,6 +720,9 @@ async def root():
             <strong>POST /api/analyze</strong> - Analyze a ticker
         </div>
         <div class="endpoint">
+            <strong>POST /api/compare</strong> - Compare two tickers side-by-side
+        </div>
+        <div class="endpoint">
             <strong>GET /api/watchlist</strong> - Get watchlist
         </div>
         <div class="endpoint">
@@ -789,6 +788,143 @@ async def analyze_ticker(request: AnalysisRequest):
             exc_info=True,
         )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/compare", response_model=ComparisonResponse)
+async def compare_tickers(request: ComparisonRequest):
+    """
+    Run side-by-side comparison of two tickers.
+
+    Fetches data for both tickers in parallel (6 concurrent MCP calls),
+    then asks the LLM to produce a structured comparison with a verdict.
+    """
+    from langchain_ollama import ChatOllama
+
+    from src.tools.lazy_loader import get_mcp_tools
+
+    start_request()
+    ticker_a = request.ticker_a.upper()
+    ticker_b = request.ticker_b.upper()
+    logger.info("compare_endpoint_called", ticker_a=ticker_a, ticker_b=ticker_b)
+
+    tools = await get_mcp_tools()
+    tool_map = {tool.name: tool for tool in tools}
+
+    market_tool = tool_map.get("get_market_snapshot")
+    if not market_tool:
+        raise HTTPException(status_code=500, detail="Market snapshot tool not available")
+
+    sentiment_tool = tool_map.get("get_sentiment_data") if request.include_sentiment else None
+    news_tool = tool_map.get("get_news") if request.include_news else None
+
+    async def _noop():
+        return None
+
+    # 6 parallel MCP calls (3 per ticker)
+    results = await asyncio.gather(
+        market_tool.ainvoke({"ticker": ticker_a}),
+        market_tool.ainvoke({"ticker": ticker_b}),
+        sentiment_tool.ainvoke({"ticker": ticker_a}) if sentiment_tool else _noop(),
+        sentiment_tool.ainvoke({"ticker": ticker_b}) if sentiment_tool else _noop(),
+        news_tool.ainvoke({"ticker": ticker_a, "count": 5}) if news_tool else _noop(),
+        news_tool.ainvoke({"ticker": ticker_b, "count": 5}) if news_tool else _noop(),
+        return_exceptions=True,
+    )
+    raw_market_a, raw_market_b, raw_sent_a, raw_sent_b, raw_news_a, raw_news_b = results
+
+    def _safe_market(raw) -> dict:
+        return parse_tool_result(raw) if not isinstance(raw, Exception) else {"error": str(raw)}
+
+    def _safe_ratings(raw: Any) -> list[dict] | None:
+        if raw is None or isinstance(raw, Exception):
+            return None
+        r = parse_tool_result(raw)
+        if r.get("error"):
+            return None
+        return cast(list[dict], r["ratings"]) if "ratings" in r else None
+
+    def _safe_news(raw: Any) -> list[dict] | None:
+        if raw is None or isinstance(raw, Exception):
+            return None
+        r = parse_tool_result(raw)
+        if r.get("error"):
+            return None
+        return cast(list[dict], r["news"]) if "news" in r else None
+
+    data_a = _safe_market(raw_market_a)
+    data_b = _safe_market(raw_market_b)
+
+    if data_a.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to get market data for {ticker_a}: {data_a.get('error')}",
+        )
+    if data_b.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to get market data for {ticker_b}: {data_b.get('error')}",
+        )
+
+    sentiment_a = _safe_ratings(raw_sent_a)
+    sentiment_b = _safe_ratings(raw_sent_b)
+    news_a = _safe_news(raw_news_a)
+    news_b = _safe_news(raw_news_b)
+
+    # Build side-by-side context using shared formatter
+    context = format_comparison_context(
+        ticker_a,
+        data_a,
+        sentiment_a,
+        news_a,
+        ticker_b,
+        data_b,
+        sentiment_b,
+        news_b,
+    )
+
+    # LLM comparison
+    ollama_config = settings.get_ollama_config()
+    ollama_config["temperature"] = 0.1
+    llm = ChatOllama(**ollama_config)
+
+    logger.info("comparison_synthesis_started", ticker_a=ticker_a, ticker_b=ticker_b)
+    try:
+        llm_response = await llm.ainvoke(
+            [
+                ("system", COMPARISON_SYSTEM_PROMPT),
+                ("user", f"Compare {ticker_a} vs {ticker_b}:\n{context}"),
+            ]
+        )
+        ai_analysis = str(llm_response.content)
+        logger.info("comparison_synthesis_complete", ticker_a=ticker_a, ticker_b=ticker_b)
+    except Exception as e:
+        logger.error("comparison_synthesis_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"LLM comparison failed: {str(e)}")
+
+    # Extract verdict from the COMPARISON: line
+    verdict = "EQUAL"
+    for line in ai_analysis.split("\n"):
+        if line.strip().upper().startswith("COMPARISON:"):
+            val = line.split(":", 1)[1].strip().upper()
+            if ticker_a in val:
+                verdict = ticker_a
+            elif ticker_b in val:
+                verdict = ticker_b
+            break
+
+    return ComparisonResponse(
+        ticker_a=ticker_a,
+        ticker_b=ticker_b,
+        timestamp=datetime.now(),
+        data_a=data_a,
+        data_b=data_b,
+        sentiment_a=sentiment_a,
+        sentiment_b=sentiment_b,
+        news_a=news_a,
+        news_b=news_b,
+        ai_analysis=ai_analysis,
+        verdict=verdict,
+    )
 
 
 @app.get("/api/watchlist")
