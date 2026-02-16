@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from graph.edges import should_continue
+from graph.edges import route_after_parse, should_continue
 
 
 def test_should_continue_with_tool_calls():
@@ -61,3 +61,27 @@ def test_should_continue_non_ai_message():
     result = should_continue(state)
 
     assert result == "end"
+
+
+def test_route_after_parse_single():
+    """Test routing to single-ticker prefetch node"""
+    state = {"mode": "single"}
+    assert route_after_parse(state) == "single"
+
+
+def test_route_after_parse_compare():
+    """Test routing to compare prefetch node"""
+    state = {"mode": "compare"}
+    assert route_after_parse(state) == "compare"
+
+
+def test_route_after_parse_chat():
+    """Test routing to agent directly for chat queries"""
+    state = {"mode": "chat"}
+    assert route_after_parse(state) == "chat"
+
+
+def test_route_after_parse_missing_mode():
+    """Test routing defaults to chat when mode is absent"""
+    state = {}
+    assert route_after_parse(state) == "chat"
