@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
+from cachetools import TTLCache  # type: ignore[import-untyped]
 from fastmcp import FastMCP
 
 # Add parent directory to path to import logging_config
@@ -18,6 +19,12 @@ from tools.wrappers import circuit_breaker, with_retry
 
 logger = get_logger(__name__)
 mcp = FastMCP("finance-server")
+
+# 15-minute TTL caches for the two most-called tools.
+# Prevents redundant yfinance round-trips during multi-ticker comparisons and
+# watchlist refreshes without storing stale data for longer than one trading session.
+_SNAPSHOT_CACHE: TTLCache = TTLCache(maxsize=200, ttl=900)
+_SENTIMENT_CACHE: TTLCache = TTLCache(maxsize=200, ttl=900)
 
 
 def _get_trend_data_logic(ticker: str, period: str = "1mo") -> dict:
@@ -107,6 +114,10 @@ def get_market_snapshot(ticker: str) -> dict:
     start_time = time.time()
     ticker = ticker.strip().upper()
     logger.info("get_market_snapshot_called", ticker=ticker)
+
+    if ticker in _SNAPSHOT_CACHE:
+        logger.debug("get_market_snapshot_cache_hit", ticker=ticker)
+        return dict(_SNAPSHOT_CACHE[ticker])
 
     try:
         stock = yf.Ticker(ticker)
@@ -206,6 +217,7 @@ def get_market_snapshot(ticker: str) -> dict:
             "quarterly_income": quarterly_income_data,
         }
 
+        _SNAPSHOT_CACHE[ticker] = result
         duration_ms = (time.time() - start_time) * 1000
         logger.info(
             "get_market_snapshot_success",
@@ -272,6 +284,11 @@ def get_sentiment_data(ticker: str, count: int = 5) -> dict:
     count = max(1, min(count, 20))  # Clamp between 1 and 20
     logger.info("get_sentiment_data_called", ticker=ticker, count=count)
 
+    cache_key = f"{ticker}:{count}"
+    if cache_key in _SENTIMENT_CACHE:
+        logger.debug("get_sentiment_data_cache_hit", ticker=ticker)
+        return dict(_SENTIMENT_CACHE[cache_key])
+
     try:
         stock = yf.Ticker(ticker)
         recommendations = stock.recommendations
@@ -298,6 +315,7 @@ def get_sentiment_data(ticker: str, count: int = 5) -> dict:
             ratings_list.append(rating)
 
         result = {"ticker": ticker, "ratings": ratings_list, "count": len(ratings_list)}
+        _SENTIMENT_CACHE[cache_key] = result
 
         duration_ms = (time.time() - start_time) * 1000
         logger.info(
