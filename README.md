@@ -27,10 +27,10 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 - **Market snapshot** — current price, volume, 52-week high/low, market cap, P/E ratio, dividend yield
 - **30-day trend chart** — sparkline of closing prices pulled from yfinance
 - **Risk gauge** — a 0–100 composite risk score derived from 52-week volatility (40%), institutional analyst sentiment (30%), and P/E ratio (30%)
-- **AI analysis** — structured long-form investment analysis written by the local LLM, rendered as Markdown in-browser
+- **AI analysis** — structured long-form investment analysis written by the local LLM, rendered as Markdown in-browser; includes parsed `RECOMMENDATION`, `CONFIDENCE`, `KEY_RISK`, and `FAIR_VALUE` fields
 - **Institutional sentiment** — horizontal bar chart of Buy / Strong Buy / Hold / Sell / Strong Sell counts from the most recent analyst ratings period
 - **Market news** — up to 20 recent articles fetched per ticker; article count is adjustable live without re-running the full analysis
-- **Watchlist sidebar** — bookmark tickers for quick one-click re-analysis; prices persist between sessions
+- **Watchlist sidebar** — bookmark tickers for quick one-click re-analysis; prices are batch-fetched in parallel at startup and persist between sessions
 - **Ticker comparison** — `POST /api/compare` fetches data for two tickers in parallel (6 concurrent MCP calls) and returns a structured side-by-side analysis with a BUY verdict
 
 ### Portfolio
@@ -76,6 +76,9 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 │  • get_news                                             │
 │  • get_trend_data                                       │
 │  • get_fund_info                                        │
+│  • get_earnings_calendar                                │
+│  • get_macro_context                                    │
+│  • get_sector_peers                                     │
 └──────────┬───────────┘
            │ yfinance + pandas
      Yahoo Finance API
@@ -85,7 +88,7 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 
 ```
 START → parse_query → [route_after_parse]
-          ├── "single"  → prefetch (3× parallel MCP) → agent → [tools loop] → END
+          ├── "single"  → prefetch (3× parallel MCP) → enrich (4× parallel MCP) → agent → [tools loop] → END
           ├── "compare" → prefetch_compare (6× parallel MCP) → agent → END
           └── "chat"    → agent → [tools loop] → END
 ```
@@ -94,11 +97,14 @@ START → parse_query → [route_after_parse]
 
 | Tool | Description |
 |---|---|
-| `get_market_snapshot(ticker)` | Current price, volume, 52-week range, volatility, P/E, market cap, dividend yield, analyst targets, quarterly income |
-| `get_sentiment_data(ticker, count)` | Recent institutional analyst ratings (Buy / Hold / Sell breakdowns) |
+| `get_market_snapshot(ticker)` | Current price, volume, 52-week range, volatility, P/E, market cap, dividend yield, analyst targets, quarterly income, quote type; 15-min TTL cache |
+| `get_sentiment_data(ticker, count)` | Recent institutional analyst ratings (Buy / Hold / Sell breakdowns); 15-min TTL cache |
 | `get_news(ticker, count, date)` | Recent news articles with title, publisher, link, and published date; optional date filter |
 | `get_trend_data(ticker, period)` | Historical OHLCV data formatted for Chart.js (daily, configurable period) |
 | `get_fund_info(ticker)` | ETF/mutual fund overview, top holdings, and sector weightings |
+| `get_earnings_calendar(ticker)` | Next earnings date, days until, EPS and revenue estimates, `earnings_imminent` flag (≤7 days) |
+| `get_macro_context()` | S&P 500 YTD return, VIX level + market regime, 10-year Treasury yield; 30-min TTL cache |
+| `get_sector_peers(ticker)` | Top 5 peer companies in the same GICS sector via `yf.Sector`; graceful fallback to empty list |
 
 All tools are decorated with `@with_retry()` and `@circuit_breaker()` for resilience against yfinance rate limits. Rate limit errors surface as structured messages rather than crashes.
 
@@ -279,7 +285,7 @@ mcpfolio/
 │   ├── logging_config.py        # Structured logging setup
 │   ├── ollama_pool.py           # Ollama client connection pool
 │   ├── server/
-│   │   └── finance.py           # MCP finance server (5 tools)
+│   │   └── finance.py           # MCP finance server (8 tools)
 │   ├── graph/
 │   │   ├── state.py             # AgentState TypedDict
 │   │   ├── nodes.py             # LangGraph node factory functions
