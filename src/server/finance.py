@@ -204,6 +204,7 @@ def get_market_snapshot(ticker: str) -> dict:
 
         result = {
             "ticker": ticker,
+            "quote_type": info.get("quoteType"),
             "current_price": float(price) if price else None,
             "volume": int(volume) if volume else None,
             "high_52_week": round(high_52w, 2),
@@ -668,6 +669,283 @@ def get_fund_info(ticker: str) -> dict:
         )
 
         return {"error": error_str, "ticker": ticker, "error_type": error_type}
+
+
+# 30-minute cache for macro context — market conditions don't change by the minute.
+_MACRO_CACHE: TTLCache = TTLCache(maxsize=1, ttl=1800)
+_MACRO_CACHE_KEY = "global"
+
+
+@mcp.tool()
+@with_retry()
+@circuit_breaker()
+def get_earnings_calendar(ticker: str) -> dict:
+    """Fetches the next earnings date and EPS/revenue estimates for a ticker.
+
+    Args:
+        ticker (str): The stock ticker symbol (e.g., 'AAPL').
+
+    Returns:
+        dict: {
+            "ticker": str,
+            "earnings_date": str | None,
+            "days_until_earnings": int | None,
+            "eps_estimate": float | None,
+            "revenue_estimate": float | None,
+            "earnings_imminent": bool   # True if earnings within 7 days
+        }
+        On error: {"error": str, "ticker": str, "error_type": str}
+    """
+    start_time = time.time()
+    ticker = ticker.strip().upper()
+    logger.info("get_earnings_calendar_called", ticker=ticker)
+
+    try:
+        stock = yf.Ticker(ticker)
+        cal = stock.calendar
+
+        if cal is None:
+            return {
+                "ticker": ticker,
+                "error": "No earnings calendar available",
+                "error_type": "no_data",
+            }
+
+        # Calendar can be a dict or DataFrame depending on yfinance version
+        if isinstance(cal, pd.DataFrame):
+            cal = cal.to_dict()
+
+        if not isinstance(cal, dict):
+            return {
+                "ticker": ticker,
+                "error": "Unexpected calendar format",
+                "error_type": "no_data",
+            }
+
+        # Extract next earnings date
+        earnings_dates = cal.get("Earnings Date", [])
+        if hasattr(earnings_dates, "values"):
+            earnings_dates = list(earnings_dates.values())
+        if not isinstance(earnings_dates, list):
+            earnings_dates = [earnings_dates]
+
+        next_date_raw = earnings_dates[0] if earnings_dates else None
+        earnings_date_str = None
+        days_until = None
+
+        if next_date_raw is not None:
+            try:
+                if hasattr(next_date_raw, "date"):
+                    next_dt = next_date_raw.date()
+                else:
+                    next_dt = datetime.strptime(str(next_date_raw)[:10], "%Y-%m-%d").date()
+                earnings_date_str = str(next_dt)
+                days_until = (next_dt - datetime.now().date()).days
+            except (ValueError, AttributeError):
+                pass
+
+        def _safe_float(val) -> float | None:
+            if val is None:
+                return None
+            if hasattr(val, "values"):
+                val = list(val.values())[0]
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return None
+
+        eps_estimate = _safe_float(
+            cal.get("Earnings Average") or cal.get("EPS Estimate") or cal.get("EPS Average")
+        )
+        revenue_estimate = _safe_float(cal.get("Revenue Average") or cal.get("Revenue Estimate"))
+
+        result = {
+            "ticker": ticker,
+            "earnings_date": earnings_date_str,
+            "days_until_earnings": days_until,
+            "eps_estimate": eps_estimate,
+            "revenue_estimate": revenue_estimate,
+            "earnings_imminent": days_until is not None and 0 <= days_until <= 7,
+        }
+
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "get_earnings_calendar_success",
+            ticker=ticker,
+            days_until=days_until,
+            imminent=result["earnings_imminent"],
+            duration_ms=round(duration_ms, 2),
+        )
+        return result
+
+    except Exception as e:
+        error_str = str(e)
+        logger.error("get_earnings_calendar_failed", ticker=ticker, error=error_str, exc_info=True)
+        return {"error": error_str, "ticker": ticker, "error_type": "unknown"}
+
+
+@mcp.tool()
+@with_retry()
+@circuit_breaker()
+def get_macro_context() -> dict:
+    """Fetches key macro market indicators: S&P 500 YTD return, VIX, and 10-year Treasury yield.
+
+    Results are cached for 30 minutes since macro conditions change slowly.
+
+    Returns:
+        dict: {
+            "sp500_ytd_pct": float | None,
+            "vix_level": float | None,
+            "market_regime": str,   # e.g. "Normal", "Elevated (Caution)", "High Volatility (Risk-Off)"
+            "treasury_10y_yield": float | None
+        }
+        On error: {"error": str, "error_type": str}
+    """
+    if _MACRO_CACHE_KEY in _MACRO_CACHE:
+        logger.debug("get_macro_context_cache_hit")
+        return dict(_MACRO_CACHE[_MACRO_CACHE_KEY])
+
+    start_time = time.time()
+    logger.info("get_macro_context_called")
+
+    try:
+        # S&P 500 YTD
+        gspc = yf.Ticker("^GSPC")
+        gspc_hist = gspc.history(period="ytd")
+        sp500_ytd = None
+        if not gspc_hist.empty and len(gspc_hist) >= 2:
+            start_price = float(gspc_hist["Close"].iloc[0])
+            end_price = float(gspc_hist["Close"].iloc[-1])
+            sp500_ytd = round((end_price - start_price) / start_price * 100, 2)
+
+        # VIX
+        vix_hist = yf.Ticker("^VIX").history(period="5d")
+        vix_level = round(float(vix_hist["Close"].iloc[-1]), 2) if not vix_hist.empty else None
+
+        market_regime = "Unknown"
+        if vix_level is not None:
+            if vix_level < 15:
+                market_regime = "Low Volatility (Risk-On)"
+            elif vix_level < 20:
+                market_regime = "Normal"
+            elif vix_level < 30:
+                market_regime = "Elevated (Caution)"
+            else:
+                market_regime = "High Volatility (Risk-Off)"
+
+        # 10-Year Treasury (^TNX is quoted as yield × 10 in some feeds; yfinance returns actual %)
+        tnx_hist = yf.Ticker("^TNX").history(period="5d")
+        treasury_yield = round(float(tnx_hist["Close"].iloc[-1]), 2) if not tnx_hist.empty else None
+
+        result = {
+            "sp500_ytd_pct": sp500_ytd,
+            "vix_level": vix_level,
+            "market_regime": market_regime,
+            "treasury_10y_yield": treasury_yield,
+        }
+
+        _MACRO_CACHE[_MACRO_CACHE_KEY] = result
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "get_macro_context_success",
+            sp500_ytd=sp500_ytd,
+            vix=vix_level,
+            regime=market_regime,
+            duration_ms=round(duration_ms, 2),
+        )
+        return result
+
+    except Exception as e:
+        error_str = str(e)
+        logger.error("get_macro_context_failed", error=error_str, exc_info=True)
+        return {"error": error_str, "error_type": "unknown"}
+
+
+@mcp.tool()
+@with_retry()
+@circuit_breaker()
+def get_sector_peers(ticker: str) -> dict:
+    """Fetches the top peer companies in the same sector for benchmarking context.
+
+    Uses yfinance Sector API. Falls back gracefully if sector data is unavailable.
+
+    Args:
+        ticker (str): The stock ticker symbol (e.g., 'AAPL').
+
+    Returns:
+        dict: {
+            "ticker": str,
+            "sector": str | None,
+            "peers": list[{"ticker": str, "name": str, "weight": float | None}],
+            "count": int
+        }
+        On error: {"error": str, "ticker": str, "error_type": str}
+    """
+    start_time = time.time()
+    ticker = ticker.strip().upper()
+    logger.info("get_sector_peers_called", ticker=ticker)
+
+    try:
+        info = yf.Ticker(ticker).info
+        sector = info.get("sector") or info.get("sectorKey")
+
+        if not sector:
+            return {
+                "ticker": ticker,
+                "sector": None,
+                "peers": [],
+                "count": 0,
+                "error": "No sector information for this ticker",
+                "error_type": "no_data",
+            }
+
+        # yfinance Sector uses lowercase hyphenated keys (e.g. "consumer-cyclical")
+        sector_key = sector.lower().replace(" ", "-").replace("_", "-").replace("/", "-")
+
+        peers: list[dict] = []
+        try:
+            sector_obj = yf.Sector(sector_key)
+            top_cos = sector_obj.top_companies
+
+            if top_cos is not None and not top_cos.empty:
+                for sym, row in top_cos.head(7).iterrows():
+                    if str(sym).upper() == ticker:
+                        continue
+                    peers.append(
+                        {
+                            "ticker": str(sym).upper(),
+                            "name": str(row.get("name", sym)),
+                            "weight": (
+                                round(float(row["weight"]), 4)
+                                if "weight" in row and pd.notna(row["weight"])
+                                else None
+                            ),
+                        }
+                    )
+                    if len(peers) >= 5:
+                        break
+        except Exception as e:
+            logger.warning("sector_peers_lookup_failed", sector=sector, error=str(e))
+
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "get_sector_peers_success",
+            ticker=ticker,
+            sector=sector,
+            peer_count=len(peers),
+            duration_ms=round(duration_ms, 2),
+        )
+        return {
+            "ticker": ticker,
+            "sector": sector,
+            "peers": peers,
+            "count": len(peers),
+        }
+
+    except Exception as e:
+        error_str = str(e)
+        logger.error("get_sector_peers_failed", ticker=ticker, error=error_str, exc_info=True)
+        return {"error": error_str, "ticker": ticker, "error_type": "unknown"}
 
 
 if __name__ == "__main__":

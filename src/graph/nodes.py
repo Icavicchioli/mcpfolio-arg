@@ -399,6 +399,136 @@ def make_prefetch_compare_node(tools_by_name: dict):
     return prefetch_compare_node
 
 
+def make_enrich_node(tools_by_name: dict):
+    """
+    Return an async node that enriches single-ticker context after prefetch.
+
+    Always fetches macro context (S&P 500 YTD, VIX, 10-yr yield).
+    Branches on asset type and data quality:
+      - ETF/MutualFund  → fetches fund holdings via get_fund_info
+      - Stock           → fetches earnings calendar + sector peers
+      - Degraded (≥2 failed tools) → injects an explicit data-caveat warning
+      - Earnings imminent (≤7 days) → prepends a catalyst alert
+    """
+
+    async def enrich_node(state):
+        ticker = state.get("tickers", [""])[0]
+        if not ticker:
+            return {}
+
+        financials = state.get("retrieved_financials", {}).get(ticker, {})
+        data_quality = state.get("data_quality", {}).get(ticker, {})
+        is_etf = str(financials.get("quote_type") or "").upper() in ("ETF", "MUTUALFUND")
+
+        macro_tool = tools_by_name.get("get_macro_context")
+        earnings_tool = tools_by_name.get("get_earnings_calendar")
+        sector_tool = tools_by_name.get("get_sector_peers")
+        fund_tool = tools_by_name.get("get_fund_info")
+
+        coros = [
+            macro_tool.ainvoke({}) if macro_tool else asyncio.sleep(0),
+            (fund_tool.ainvoke({"ticker": ticker}) if (fund_tool and is_etf) else asyncio.sleep(0)),
+            (
+                earnings_tool.ainvoke({"ticker": ticker})
+                if (earnings_tool and not is_etf)
+                else asyncio.sleep(0)
+            ),
+            (
+                sector_tool.ainvoke({"ticker": ticker})
+                if (sector_tool and not is_etf)
+                else asyncio.sleep(0)
+            ),
+        ]
+        raw_macro, raw_fund, raw_earnings, raw_peers = await asyncio.gather(
+            *coros, return_exceptions=True
+        )
+
+        messages_to_add = []
+
+        # Degraded data caveat — surface before any enrichment context
+        failed_tools = [k for k, v in data_quality.items() if not v]
+        if len(failed_tools) >= 2:
+            messages_to_add.append(
+                HumanMessage(
+                    content=(
+                        f"DATA CAVEAT: {len(failed_tools)} data sources failed "
+                        f"({', '.join(failed_tools)}) for {ticker}. "
+                        "Flag any data gaps explicitly in your analysis."
+                    )
+                )
+            )
+
+        # Macro context (always)
+        macro = _parse_mcp_result(raw_macro) if not isinstance(raw_macro, Exception) else {}
+        if macro and not macro.get("error"):
+            lines = [
+                "MACRO CONTEXT:",
+                f"  S&P 500 YTD: {macro.get('sp500_ytd_pct', 'N/A')}%",
+                f"  VIX: {macro.get('vix_level', 'N/A')} — {macro.get('market_regime', 'N/A')}",
+                f"  10-Year Treasury: {macro.get('treasury_10y_yield', 'N/A')}%",
+            ]
+            messages_to_add.append(HumanMessage(content="\n".join(lines)))
+
+        if is_etf:
+            # ETF: inject fund holdings instead of earnings/peers
+            fund = _parse_mcp_result(raw_fund) if not isinstance(raw_fund, Exception) else {}
+            if fund and not fund.get("error"):
+                holdings = (fund.get("top_holdings") or [])[:5]
+                sectors = fund.get("sector_weightings") or {}
+                lines = [f"FUND HOLDINGS ({ticker}):"]
+                for h in holdings:
+                    sym = h.get("symbol") or h.get("holdingName", "?")
+                    pct = h.get("holdingPercent")
+                    lines.append(f"  {sym}: {pct:.1%}" if isinstance(pct, float) else f"  {sym}")
+                if sectors:
+                    top_s = sorted(sectors.items(), key=lambda x: x[1], reverse=True)[:3]
+                    lines.append("Top sectors: " + ", ".join(f"{s} ({v:.0%})" for s, v in top_s))
+                messages_to_add.append(HumanMessage(content="\n".join(lines)))
+        else:
+            # Earnings calendar
+            earnings = (
+                _parse_mcp_result(raw_earnings) if not isinstance(raw_earnings, Exception) else {}
+            )
+            if earnings and not earnings.get("error"):
+                days = earnings.get("days_until_earnings")
+                eps = earnings.get("eps_estimate")
+                date_str = earnings.get("earnings_date", "N/A")
+                if days is not None and 0 <= days <= 7:
+                    messages_to_add.append(
+                        HumanMessage(
+                            content=(
+                                f"EARNINGS CATALYST ALERT: {ticker} reports in {days} day(s) "
+                                f"({date_str}). "
+                                + (f"EPS estimate: ${eps:.2f}. " if eps else "")
+                                + "Weight short-term risk heavily in your analysis."
+                            )
+                        )
+                    )
+                elif date_str != "N/A":
+                    messages_to_add.append(
+                        HumanMessage(
+                            content=f"NEXT EARNINGS: {ticker} — {date_str}"
+                            + (f" (EPS est. ${eps:.2f})" if eps else "")
+                        )
+                    )
+
+            # Sector peers
+            peers_result = (
+                _parse_mcp_result(raw_peers) if not isinstance(raw_peers, Exception) else {}
+            )
+            peers = peers_result.get("peers", [])
+            sector = peers_result.get("sector")
+            if peers and sector:
+                lines = [f"SECTOR PEERS ({sector}):"]
+                for p in peers[:5]:
+                    lines.append(f"  {p['ticker']}: {p.get('name', '')}")
+                messages_to_add.append(HumanMessage(content="\n".join(lines)))
+
+        return {"messages": messages_to_add} if messages_to_add else {}
+
+    return enrich_node
+
+
 def make_agent_node(model, tools: list):
     """
     Return an agent reasoning node that decides whether to call tools or respond.
