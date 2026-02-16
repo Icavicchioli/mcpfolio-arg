@@ -55,7 +55,7 @@ dependencies = [
     # Web UI
     "fastapi>=0.115.0,<0.116.0",
     "uvicorn>=0.34.0,<0.41.0",
-    "websockets>=14.0,<16.0",
+    "websockets>=14.0,<17.0",
     # CLI Enhancement
     "rich>=14.0.0,<15.0.0",
     "typer>=0.15.0,<0.30.0",
