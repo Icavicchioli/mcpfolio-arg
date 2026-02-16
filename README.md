@@ -175,9 +175,9 @@ cd ../../..
 ```bash
 conda activate quant-ollama-analyst
 python src/main.py
-```
 
-The dashboard opens at **http://localhost:8000** by default.
+This starts the web server and automatically opens the dashboard in your browser at **http://localhost:8000**.
+```
 
 ### CLI mode
 
