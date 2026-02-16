@@ -22,6 +22,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (Phase C — thesis tracking + SYSTEM_PROMPT formatting fix)
+- `src/persistence.py` — new `ThesisStore` class: encrypts per-analysis thesis records to `data/thesis.enc` using Fernet (same salt + same password as `SecurePortfolioManager`); one password unlocks both stores
+- `GET /api/thesis` — returns the 200 most recent thesis records across all tickers (newest-first); requires portfolio unlock, returns `401` when locked
+- `GET /api/thesis/{ticker}` — returns the 50 most recent thesis records for a single ticker; same auth requirement
+- `SessionManager.add_analysis()` now persists to `ThesisStore` when unlocked, so every analysis after unlock is durably recorded across restarts
+- `POST /api/portfolio/unlock` and `POST /api/portfolio/lock` now also unlock/lock the thesis store — one password, one action
+- Thesis History card added to the Portfolio page (frontend): shows date · ticker · color-coded REC badge · confidence · price · key-risk preview; click-to-expand renders the full `ai_analysis` inline
+- 13 new unit tests for `ThesisStore` (`tests/unit/test_persistence.py`); `ThesisStore` coverage 96.97%
+
+### Changed (Phase C)
+- `SYSTEM_PROMPT` OUTPUT FORMAT block replaced with explicit per-line formatting rules and a BAD/GOOD counter-example, requiring the LLM to put each header field on its own line, always emit `FAIR_VALUE`, and always use `##` section headers
+
+### Added (Phase B — new MCP tools and data-aware enrichment)
+- `get_earnings_calendar(ticker)` MCP tool — next earnings date, days until, EPS/revenue estimates, and `earnings_imminent` flag (true when ≤7 days away)
+- `get_macro_context()` MCP tool — S&P 500 YTD return, VIX level + market regime (Risk-On / Normal / Elevated / Risk-Off), 10-year Treasury yield; 30-min TTL cache
+- `get_sector_peers(ticker)` MCP tool — top 5 peers in the same GICS sector via `yf.Sector`; returns empty list (not an exception) when the Sector API is unavailable
+- `quote_type` field added to `get_market_snapshot` response (enables ETF vs. stock branching downstream)
+- `make_enrich_node` LangGraph node inserted between `prefetch` and `agent` on the single-ticker CLI path: always injects macro context; branches to fund holdings (ETF) or earnings calendar + sector peers (stock); prepends a DATA CAVEAT when ≥2 tools return degraded data; emits an EARNINGS CATALYST ALERT when earnings are ≤7 days away
+
+### Added (Phase A — caching, structured output, watchlist startup)
+- TTL caching on `get_market_snapshot` (15-min) and `get_sentiment_data` (15-min) to reduce redundant yfinance calls
+- Structured LLM output: `POST /api/analyze` now parses and returns `recommendation`, `confidence`, `key_risk`, and `fair_value` extracted from the LLM response; parser handles single-line output, space vs. underscore variants (`FAIR VALUE` / `FAIR_VALUE`), and 0–100 vs. 0–1 confidence scales
+- `POST /api/watchlist/refresh` endpoint — batch-fetches current prices for all watchlist tickers in parallel at startup; frontend calls this automatically so prices are populated before the first user interaction
+- Ticker comparison: `POST /api/compare` fetches 6 MCP tools in parallel (3 per ticker) and returns a side-by-side LLM analysis with a `verdict` field naming the recommended ticker
+
+### Changed (Phase A)
+- SYSTEM_PROMPT updated to produce flowing prose (Thesis and Verdict as paragraphs, not bullets) with `##` section headers and blank lines between sections
+- `fetchInitialData()` no longer auto-analyzes the last search bar ticker on page load — only the watchlist is loaded
+
 ### Added
 - Full portfolio redesign: holdings table with Shares / Cost Per Share / Current Price / Total Value / G/L columns
 - Equity allocation doughnut chart (lazy-initialized to avoid hidden-canvas sizing bug)
