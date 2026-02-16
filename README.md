@@ -173,19 +173,19 @@ cd ../../..
 ## Running
 
 ```bash
-conda activate quant-ollama-analyst
-python src/main.py
-
-This starts the web server and automatically opens the dashboard in your browser at **http://localhost:8000**.
+bash scripts/start-dashboard.sh
 ```
+
+The script activates the `quant-ollama-analyst` conda environment automatically, checks that Ollama is running, starts the FastAPI backend, waits for a healthy response, then opens **http://localhost:8000** in your browser.
 
 ### CLI mode
 
 ```bash
+conda activate quant-ollama-analyst
 python src/main.py --ticker AAPL
 ```
 
-Runs a single analysis for the given ticker and prints the result to stdout.
+Runs a single-ticker analysis and prints the result to stdout. Does not start the web dashboard.
 
 ### MCP server standalone (for testing)
 

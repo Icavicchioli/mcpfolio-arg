@@ -36,14 +36,15 @@ ReAct pattern with persistent state containing:
 ## Commands
 
 ```bash
-# Activate environment
-conda activate quant-ollama-analyst
-
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the CLI
-python src/main.py
+# Start the web dashboard (handles env activation, Ollama, and browser open)
+bash scripts/start-dashboard.sh
+
+# Run the CLI (single-ticker analysis, no dashboard)
+conda activate quant-ollama-analyst
+python src/main.py --ticker AAPL
 
 # Run MCP server standalone (for testing)
 python src/server/finance.py
