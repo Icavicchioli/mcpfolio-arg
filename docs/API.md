@@ -105,11 +105,19 @@ This is the slowest endpoint (~10–60 s depending on model and hardware). The L
     }
   ],
   "ai_analysis": "## Investment Assessment\n\nApple Inc. presents...",
-  "risk_score": 35.2
+  "risk_score": 35.2,
+  "recommendation": "BUY",
+  "confidence": 0.82,
+  "key_risk": "High dependence on AI-driven growth and increasing debt load.",
+  "fair_value": 305.72
 }
 ```
 
 `risk_score` is 0–100: 0–30 = Low, 31–70 = Medium, 71–100 = High.
+
+`recommendation` is one of `BUY`, `HOLD`, `SELL`, or `CAUTION` (parsed from LLM output; `null` if the LLM did not emit the structured block).
+
+`confidence` is 0.0–1.0; `key_risk` is a single-sentence summary; `fair_value` is the LLM's estimated intrinsic price (null if N/A or not emitted).
 
 **Errors**
 - `422` — invalid ticker length or missing field
@@ -187,6 +195,60 @@ Removes a ticker from the watchlist.
 ```json
 { "status": "removed", "ticker": "AAPL" }
 ```
+
+---
+
+### `POST /api/watchlist/refresh`
+
+Batch-fetches the current price for every ticker in the watchlist in parallel and updates their `last_price` / `last_updated` fields. Called automatically by the frontend on startup.
+
+**Response `200`**
+```json
+{
+  "watchlist": [
+    {
+      "ticker": "AAPL",
+      "added_at": "2026-02-14T09:15:00",
+      "last_price": 227.5,
+      "last_updated": "2026-02-16T08:00:00"
+    }
+  ]
+}
+```
+
+Tickers that fail to resolve (rate limit, invalid symbol) retain their previous `last_price` without erroring the whole request.
+
+---
+
+## Comparison
+
+### `POST /api/compare`
+
+Fetches market data for two tickers in parallel (6 concurrent MCP calls) and returns a side-by-side LLM analysis with a winner verdict.
+
+**Request body**
+```json
+{
+  "ticker_a": "AAPL",
+  "ticker_b": "MSFT"
+}
+```
+
+**Response `200`**
+```json
+{
+  "ticker_a": "AAPL",
+  "ticker_b": "MSFT",
+  "analysis": "## AAPL vs MSFT\n\n...",
+  "verdict": "MSFT"
+}
+```
+
+`verdict` is whichever ticker the LLM recommended; parsed from a `COMPARISON: <TICKER>` line in the LLM output.
+
+**Errors**
+- `422` — missing or invalid ticker symbols
+- `500` — data fetch failure or Ollama timeout
 
 ---
 
