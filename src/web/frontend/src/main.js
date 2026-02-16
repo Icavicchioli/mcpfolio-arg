@@ -120,16 +120,19 @@ async function fetchInitialData() {
     updateHistory()
   ]);
 
-  // Auto-analyze the most recently updated watchlist item on startup
+  // Prefetch prices for every watchlist ticker in parallel so they
+  // show up on startup without needing a full analysis to have run first.
   if (state.watchlist.length > 0) {
-    const sorted = [...state.watchlist].sort((a, b) => {
-      const ta = a.last_updated ? new Date(a.last_updated) : new Date(a.added_at);
-      const tb = b.last_updated ? new Date(b.last_updated) : new Date(b.added_at);
-      return tb - ta;
-    });
-    const autoTicker = sorted[0].ticker;
-    document.getElementById('ticker-input').value = autoTicker;
-    handleAnalyze();
+    try {
+      const res = await fetch('/api/watchlist/refresh', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        state.watchlist = data.watchlist || state.watchlist;
+        renderWatchlist();
+      }
+    } catch (err) {
+      console.error('Watchlist price refresh failed:', err);
+    }
   }
 }
 

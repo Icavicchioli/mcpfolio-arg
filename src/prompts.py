@@ -1,5 +1,7 @@
 """Prompts for the MCPFolio Financial Analyst."""
 
+import re
+
 SYSTEM_PROMPT = """You are a long-term investment analyst evaluating stocks on a 3-5+ year horizon.
 
 REASONING ORDER — always evaluate in this sequence:
@@ -14,19 +16,31 @@ KEY PRINCIPLES:
 - CAUTION should replace SELL unless fundamentals are genuinely deteriorating (declining revenue, negative earnings trend, analyst downgrades).
 - Stick strictly to provided data. If data is missing, state what you don't know.
 
-OUTPUT FORMAT — be concise (~250 words max), use these exact headers:
+OUTPUT FORMAT — ~250 words max. Output EXACTLY in this order, with blank lines between each section:
 
 RECOMMENDATION: [BUY/HOLD/SELL/CAUTION]
+CONFIDENCE: [0.00-1.00]
+KEY_RISK: [single sentence — the biggest risk]
+FAIR_VALUE: [$price or N/A]
+
 ## Thesis
-2-3 sentence investment thesis.
+Write 2-3 flowing sentences explaining the core investment case. Avoid bullet points here.
+
 ## Fundamentals
-- Bullet points: market cap context, P/E vs growth, dividend, earnings trend.
+- Market cap and scale context
+- P/E vs growth rate assessment
+- Dividend and earnings trajectory
+
 ## Analyst Consensus
-One-liner summarizing buy/hold/sell counts and average target price.
+One fluent sentence summarizing the buy/hold/sell split and average price target.
+
 ## Risk Factors
-- 3 bullet points max.
+- Risk 1: brief explanation
+- Risk 2: brief explanation
+- Risk 3: brief explanation
+
 ## Verdict
-2-3 sentence final take for long-term investors.
+Write 2-3 polished sentences with a clear directional conclusion for a long-term investor. End with the recommendation restated naturally.
 """
 
 PREFETCH_NOTICE = (
@@ -73,6 +87,57 @@ ANALYSIS_TEMPLATE = """# Analysis for {ticker}
 ---
 *Note: This is an AI-generated sanity check and does not constitute financial advice.*
 """
+
+
+def parse_llm_output(text: str) -> dict:
+    """Extract the structured block from LLM output.
+
+    Handles fields on separate lines OR all on one line, and accepts both
+    FAIR_VALUE and FAIR VALUE (with space) as written by the LLM.
+
+    Returns a dict with keys: recommendation, confidence, key_risk, fair_value.
+    Any field that cannot be parsed is returned as None.
+    """
+    # Lookahead stops each field's value at the next known keyword or end-of-string.
+    # This works whether the fields are newline-separated or all on one line.
+    _BOUNDARY = r"(?=\s*(?:RECOMMENDATION|CONFIDENCE|KEY[_ ]RISK|FAIR[_ ]VALUE)\s*:|$)"
+
+    def _find(label: str) -> str | None:
+        # Accept both underscore and space variants (KEY_RISK / KEY RISK, etc.)
+        pat = re.escape(label).replace(r"\ ", r"[_ ]")
+        m = re.search(rf"{pat}\s*:\s*(.+?){_BOUNDARY}", text, re.IGNORECASE | re.DOTALL)
+        return m.group(1).strip() if m else None
+
+    recommendation = _find("RECOMMENDATION")
+    if recommendation:
+        recommendation = re.sub(r"[\[\]*_]", "", recommendation).strip().upper()
+
+    confidence_str = _find("CONFIDENCE")
+    confidence = None
+    if confidence_str:
+        m = re.search(r"(\d+\.?\d*)", confidence_str)
+        if m:
+            val = float(m.group(1))
+            confidence = val if val <= 1.0 else val / 100.0
+            confidence = round(max(0.0, min(1.0, confidence)), 2)
+
+    key_risk = _find("KEY_RISK") or _find("KEY RISK")
+    if key_risk:
+        key_risk = re.sub(r"[\[\]*_]", "", key_risk).strip()
+
+    fair_value = None
+    fv_str = _find("FAIR_VALUE") or _find("FAIR VALUE")
+    if fv_str and fv_str.strip().upper() != "N/A":
+        m = re.search(r"(\d+\.?\d*)", fv_str.replace(",", ""))
+        if m:
+            fair_value = float(m.group(1))
+
+    return {
+        "recommendation": recommendation,
+        "confidence": confidence,
+        "key_risk": key_risk,
+        "fair_value": fair_value,
+    }
 
 
 def _fmt_mktcap(mkt_cap) -> str:

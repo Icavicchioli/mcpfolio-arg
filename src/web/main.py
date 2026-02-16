@@ -29,6 +29,7 @@ from src.prompts import (
     SYSTEM_PROMPT,
     format_comparison_context,
     format_single_context,
+    parse_llm_output,
 )
 from src.startup import quick_startup, shutdown
 
@@ -82,7 +83,11 @@ class AnalysisResponse(BaseModel):
     sentiment: list[dict] | None = None
     news: list[dict] | None = None
     ai_analysis: str
-    risk_score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
+    risk_score: float = Field(..., ge=0, le=100, description="Formula-based risk score 0-100")
+    recommendation: str | None = None
+    confidence: float | None = Field(None, ge=0.0, le=1.0, description="LLM confidence 0-1")
+    key_risk: str | None = None
+    fair_value: float | None = None
 
 
 class PortfolioItem(BaseModel):
@@ -558,6 +563,8 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
         logger.error("ai_synthesis_failed", error=str(e))
         ai_analysis = f"Error generating robust AI analysis: {str(e)}\n\nFallback: {ai_analysis}"
 
+    structured = parse_llm_output(ai_analysis)
+
     response = AnalysisResponse(
         ticker=request.ticker.upper(),
         timestamp=datetime.now(),
@@ -566,6 +573,10 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
         news=news_data,
         ai_analysis=ai_analysis,
         risk_score=risk_score,
+        recommendation=structured["recommendation"],
+        confidence=structured["confidence"],
+        key_risk=structured["key_risk"],
+        fair_value=structured["fair_value"],
     )
 
     # Add to session history
@@ -579,6 +590,8 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
         "analysis_complete",
         ticker=request.ticker,
         risk_score=risk_score,
+        recommendation=structured["recommendation"],
+        confidence=structured["confidence"],
         has_sentiment=sentiment_data is not None,
         has_news=news_data is not None,
     )
@@ -934,6 +947,52 @@ async def get_watchlist():
     logger.info("watchlist_requested", count=len(session.watchlist))
 
     return {"watchlist": session.watchlist}
+
+
+@app.post("/api/watchlist/refresh")
+async def refresh_watchlist_prices():
+    """Fetch current prices for all watchlist tickers in parallel.
+
+    Called on dashboard startup so every watchlist item shows a price
+    without requiring a full analysis to have been run first.
+    """
+    import yfinance as yf
+
+    if not session.watchlist:
+        return {"watchlist": session.watchlist, "updated": 0}
+
+    async def _fetch_price(ticker: str) -> tuple[str, float | None]:
+        def _get_info() -> dict:
+            return dict(yf.Ticker(ticker).info)
+
+        try:
+            info = await asyncio.to_thread(_get_info)
+            price = (
+                info.get("currentPrice")
+                or info.get("regularMarketPrice")
+                or info.get("navPrice")
+                or info.get("previousClose")
+            )
+            return ticker, float(price) if price else None
+        except Exception:
+            return ticker, None
+
+    results = await asyncio.gather(
+        *[_fetch_price(w.ticker) for w in session.watchlist],
+        return_exceptions=True,
+    )
+
+    updated = 0
+    for result in results:
+        if isinstance(result, tuple):
+            ticker, price = result
+            if price is not None:
+                session.update_watchlist_price(ticker, price)
+                updated += 1
+
+    session._save_watchlist()
+    logger.info("watchlist_prices_refreshed", updated=updated, total=len(session.watchlist))
+    return {"watchlist": session.watchlist, "updated": updated}
 
 
 @app.post("/api/watchlist/{ticker}")
