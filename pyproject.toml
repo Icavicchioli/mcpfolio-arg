@@ -114,12 +114,7 @@ Repository = "https://github.com/adkarp/mcpfolio"
 Issues = "https://github.com/adkarp/mcpfolio/issues"
 
 [project.scripts]
-# Primary CLI (Rich + Typer)
 mcpfolio = "src.cli:app"
-# Web interface
-mcpfolio-web = "uvicorn:main"
-# Legacy CLI (original)
-mcpfolio-legacy = "src.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

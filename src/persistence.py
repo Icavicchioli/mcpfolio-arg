@@ -112,14 +112,16 @@ class ThesisStore:
         if not self.thesis_path.exists():
             return []
         encrypted = self.thesis_path.read_bytes()
-        assert self.fernet is not None
+        if self.fernet is None:
+            raise RuntimeError("ThesisStore is locked")
         decrypted = self.fernet.decrypt(encrypted)
         return list(json.loads(decrypted))
 
     def _save_raw(self, records: list[ThesisRecord]) -> None:
         raw = json.dumps(records).encode()
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        assert self.fernet is not None
+        if self.fernet is None:
+            raise RuntimeError("ThesisStore is locked")
         self.thesis_path.write_bytes(self.fernet.encrypt(raw))
 
     def save(self, analysis: AnalysisResponse) -> None:
