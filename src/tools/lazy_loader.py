@@ -6,11 +6,33 @@ This reduces startup time from ~8-10s to <3s.
 """
 
 import asyncio
+import os
+import sys
 from typing import Any, cast
 
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+_EXPECTED_ENV = "mcpfolio"
+
+
+def _check_conda_env() -> None:
+    active_env = os.environ.get("CONDA_DEFAULT_ENV", "")
+    # conda run doesn't always set CONDA_DEFAULT_ENV, so also check the executable path
+    exe_in_env = _EXPECTED_ENV in sys.executable.replace("\\", "/")
+    if active_env == _EXPECTED_ENV or exe_in_env:
+        logger.info("conda_env_ok", env=active_env or "(via executable)", python=sys.executable)
+    else:
+        logger.warning(
+            "wrong_conda_env",
+            expected=_EXPECTED_ENV,
+            active=active_env or "(none)",
+            python=sys.executable,
+        )
+
+
+_check_conda_env()
 
 
 class LazyMCPClient:
@@ -39,7 +61,7 @@ class LazyMCPClient:
                 self._client = MultiServerMCPClient(
                     {
                         "finance": {
-                            "command": "python",
+                            "command": sys.executable,
                             "args": [settings.mcp_server_path],
                             "transport": cast(Any, settings.mcp_transport),
                         }
