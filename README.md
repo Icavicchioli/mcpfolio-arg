@@ -73,29 +73,43 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 │  Dashboard · Portfolio · Advisor · Watchlist · Charts · News     │
 └────────┬─────────────────────────┬──────────────────────────────┘
          │ REST (HTTP/JSON)        │ WebSocket (/ws/advisor)
+         │                         │
 ┌────────▼─────────────────────────▼──────────────────────────────┐
-│                 FastAPI Web Server  (src/web/main.py)            │
-│  /api/analyze · /api/compare · /api/portfolio                    │
-│  /api/watchlist · /api/config/models · /ws/advisor               │
-└──────────┬──────────────────────┬───────────────────────────────┘
-           │ MCP (stdio)          │ ollama Python client
-           │                      │ + LangGraph state machine
-┌──────────▼───────────┐  ┌──────▼──────────────────────┐
-│  MCP Finance Server  │  │  Ollama (local LLM process)  │
-│ (src/server/finance) │  │  llama3.2:3b (default)       │
-│                      │  │  any installed model         │
-│  Tools exposed:      │  └─────────────────────────────┘
-│  • get_market_snapshot                                  │
-│  • get_sentiment_data                                   │
-│  • get_news                                             │
-│  • get_trend_data                                       │
-│  • get_fund_info                                        │
-│  • get_earnings_calendar                                │
-│  • get_macro_context                                    │
-│  • get_sector_peers                                     │
-└──────────┬───────────┘
-           │ yfinance + pandas
-     Yahoo Finance API
+│               FastAPI Backend (src/web/main.py)                  │
+│                                                                  │
+│  Endpoints: /api/analyze · /api/compare · /api/portfolio         │
+│             /api/watchlist · /api/config/models · /ws/advisor    │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────┐     │
+│  │    LangGraph Orchestration (CLI + Advisor paths)       │     │
+│  │    • Query parsing & routing                           │     │
+│  │    • Parallel tool prefetching                         │     │
+│  │    • Multi-turn conversation memory                    │     │
+│  └──────────────┬─────────────────────────┬───────────────┘     │
+└─────────────────┼─────────────────────────┼────────────────────┘
+                  │                         │
+         MCP (stdio transport)    HTTP REST (ollama Python client)
+                  │                         │
+     ┌────────────▼───────────┐   ┌─────────▼─────────────────────┐
+     │  MCP Finance Server    │   │  Ollama (local LLM process)   │
+     │  (src/server/finance)  │   │  llama3.2:3b (default)        │
+     │                        │   │  any installed model          │
+     │  8 MCP Tools:          │   └───────────────────────────────┘
+     │  • get_market_snapshot │
+     │  • get_sentiment_data  │
+     │  • get_news            │
+     │  • get_trend_data      │
+     │  • get_fund_info       │
+     │  • get_earnings_calendar
+     │  • get_macro_context   │
+     │  • get_sector_peers    │
+     └────────────┬───────────┘
+                  │ yfinance + pandas
+                  │
+          ┌───────▼────────┐
+          │ Yahoo Finance  │
+          │      API       │
+          └────────────────┘
 ```
 
 ### LangGraph Flow
