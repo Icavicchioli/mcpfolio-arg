@@ -12,9 +12,9 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 
 ---
 
-| Dashboard | Portfolio |
-|---|---|
-| ![Dashboard](docs/screenshot-dashboard.png) | ![Portfolio](docs/screenshot-portfolio.png) |
+| Dashboard | Portfolio | Advisor |
+|---|---|---|
+| ![Dashboard](docs/screenshot-dashboard.png) | ![Portfolio](docs/screenshot-portfolio.png) | ![Advisor](docs/screenshot-advisor.png) |
 
 *Tickers, share counts, and prices shown are illustrative only and do not represent real holdings or investment positions.*
 
@@ -43,6 +43,18 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 - **Thesis history** — every analysis run while unlocked is persisted to `data/thesis.enc`; the Thesis History panel shows date · ticker · color-coded recommendation · confidence · price · key risk preview, with click-to-expand for the full AI analysis; survives server restarts
 - **Danger zone** — permanently wipe all encrypted portfolio data from the device
 
+### Advisor (AI Financial Chat)
+- **Real-time streaming** — ChatGPT-style conversational interface with token-by-token streaming over WebSocket
+- **Multi-turn memory** — LangGraph `MemorySaver` preserves full conversation history; follow-up questions reference prior context
+- **Expandable thinking blocks** — every MCP tool call is shown as a collapsible `<details>` block with tool name, input JSON, and completion status; mirrors Claude's extended-thinking UX
+- **Context-aware tool calling** — proactively fetches market data for specific tickers and market conditions; responds conversationally to capability questions without dumping data
+- **Portfolio context injection** — when portfolio is unlocked, current holdings are injected as fresh context each turn (not stored in conversation history)
+- **Starter prompts** — four curated example questions (macro outlook, deep dive, sector rotation, ticker comparison) shown on empty state
+- **Full graph topology** — reuses the same `parse_query → prefetch → enrich → agent` flow as the CLI; typing "walk me through NVDA" auto-triggers full prefetch+enrich before the LLM responds
+- **Temperature-tuned** — 0.6 for natural conversation with strict accuracy constraints to prevent hallucination
+- **Clear conversation** — reset thread and start fresh at any time
+- **Not financial advice disclaimer** — prominent footer reminder that this is for informational and educational purposes only
+
 ### Infrastructure
 - **Model picker** — switch between any locally-installed Ollama model at runtime without restarting
 - **Health status** — live Ollama and backend status indicators in the header, polled every 10 seconds
@@ -56,17 +68,18 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Browser (Vite SPA)                   │
-│  Dashboard · Portfolio · Watchlist · Charts · News       │
-└───────────────────────┬─────────────────────────────────┘
-                        │ REST (HTTP/JSON)
-┌───────────────────────▼─────────────────────────────────┐
-│              FastAPI Web Server  (src/web/main.py)       │
-│  /api/analyze · /api/compare · /api/portfolio            │
-│  /api/watchlist · /api/config/models                     │
-└──────────┬──────────────────────┬───────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                       Browser (Vite SPA)                        │
+│  Dashboard · Portfolio · Advisor · Watchlist · Charts · News     │
+└────────┬─────────────────────────┬──────────────────────────────┘
+         │ REST (HTTP/JSON)        │ WebSocket (/ws/advisor)
+┌────────▼─────────────────────────▼──────────────────────────────┐
+│                 FastAPI Web Server  (src/web/main.py)            │
+│  /api/analyze · /api/compare · /api/portfolio                    │
+│  /api/watchlist · /api/config/models · /ws/advisor               │
+└──────────┬──────────────────────┬───────────────────────────────┘
            │ MCP (stdio)          │ ollama Python client
+           │                      │ + LangGraph state machine
 ┌──────────▼───────────┐  ┌──────▼──────────────────────┐
 │  MCP Finance Server  │  │  Ollama (local LLM process)  │
 │ (src/server/finance) │  │  llama3.2:3b (default)       │
@@ -85,7 +98,9 @@ MCPFolio connects a locally-running Ollama model to live market data through the
      Yahoo Finance API
 ```
 
-### CLI LangGraph Flow
+### LangGraph Flow
+
+The CLI and Advisor tab both use the same state machine topology with different system prompts:
 
 ```
 START → parse_query → [route_after_parse]
@@ -93,6 +108,9 @@ START → parse_query → [route_after_parse]
           ├── "compare" → prefetch_compare (6× parallel MCP) → agent → END
           └── "chat"    → agent → [tools loop] → END
 ```
+
+- **CLI**: uses `SYSTEM_PROMPT` (structured output: `RECOMMENDATION:`, `CONFIDENCE:`, `FAIR_VALUE:`, `KEY_RISK:`)
+- **Advisor**: uses `ADVISOR_SYSTEM_PROMPT` (conversational output with pattern-based tool calling rules)
 
 ### MCP Tools (src/server/finance.py)
 
@@ -290,7 +308,8 @@ mcpfolio/
 │   ├── graph/
 │   │   ├── state.py             # AgentState TypedDict
 │   │   ├── nodes.py             # LangGraph node factory functions
-│   │   └── edges.py             # LangGraph state transitions + routing
+│   │   ├── edges.py             # LangGraph state transitions + routing
+│   │   └── advisor.py           # Advisor graph factory + ADVISOR_SYSTEM_PROMPT
 │   ├── tools/
 │   │   ├── lazy_loader.py       # MCP tool lazy initialization
 │   │   └── wrappers.py          # @with_retry, @circuit_breaker decorators

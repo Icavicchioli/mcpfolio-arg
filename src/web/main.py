@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import os
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from src.config import get_settings
@@ -232,6 +234,10 @@ class SessionManager:
         self.thesis_store = ThesisStore(self.data_dir)
         self.analysis_history: list[AnalysisResponse] = []
         self.max_history = 50
+
+        # Advisor graph state
+        self.advisor_graph = None  # CompiledGraph, lazy-initialized
+        self.advisor_thread_id: str = "advisor-web"
 
         # Load from disk
         self._load_watchlist()
@@ -1218,6 +1224,146 @@ async def websocket_analysis(websocket: WebSocket):
         ws_manager.disconnect(websocket)
     except Exception as e:
         logger.error("websocket_error", error=str(e), exc_info=True)
+        ws_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/advisor")
+async def websocket_advisor(websocket: WebSocket):
+    """
+    WebSocket endpoint for the AI advisor chat.
+
+    Streams LangGraph events in real time: LLM tokens and tool calls.
+    """
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+
+            # ── Clear conversation ──
+            if data.get("action") == "clear":
+                session.advisor_thread_id = str(uuid.uuid4())
+                session.advisor_graph = None  # force graph re-init with fresh thread
+                await websocket.send_json({"type": "cleared"})
+                continue
+
+            user_text = (data.get("message") or "").strip()
+            if not user_text:
+                continue
+
+            # ── Lazy-init advisor graph ──
+            if session.advisor_graph is None:
+                logger.info("advisor_graph_initializing")
+                try:
+                    from langchain_ollama import ChatOllama
+
+                    from src.graph.advisor import build_advisor_graph
+                    from src.tools.lazy_loader import get_mcp_tools
+
+                    tools = await get_mcp_tools()
+                    tools_by_name = {t.name: t for t in tools}
+                    ollama_config = {
+                        **settings.get_ollama_config(),
+                        "temperature": 0.6,  # Higher temp for conversational advisor (vs 0.1 for structured analysis)
+                        "num_predict": 2048,  # Allow longer responses (default is ~512)
+                    }
+                    llm = ChatOllama(**ollama_config)
+                    session.advisor_graph = build_advisor_graph(llm, tools, tools_by_name)
+                    logger.info("advisor_graph_initialized", tools_count=len(tools))
+                except Exception as e:
+                    logger.error("advisor_graph_init_failed", error=str(e), exc_info=True)
+                    await websocket.send_json(
+                        {"type": "error", "message": f"Failed to initialize advisor: {str(e)}"}
+                    )
+                    continue
+
+            # ── Optional portfolio context (fresh each turn) ──
+            input_messages = []
+            if session.portfolio_manager.is_unlocked():
+                holdings = session.portfolio_manager.load()
+                if holdings:
+                    summary = "User's current portfolio: " + ", ".join(
+                        f"{h.ticker} ({h.quantity} shares @ ${h.cost_basis}/share)"
+                        for h in holdings
+                    )
+                    input_messages.append(SystemMessage(content=summary))
+            input_messages.append(HumanMessage(content=user_text))
+
+            config = {"configurable": {"thread_id": session.advisor_thread_id}}
+
+            # ── Stream events ──
+            try:
+                # Track active tools to buffer response until tools complete
+                active_tools = set()
+                buffered_tokens: list[str] = []
+
+                async for event in session.advisor_graph.astream_events(
+                    {"messages": input_messages}, config=config, version="v2"
+                ):
+                    kind = event["event"]
+                    node = event.get("metadata", {}).get("langgraph_node", "")
+
+                    # Track tool lifecycle
+                    if kind == "on_tool_start":
+                        # Use run_id for unique tracking if available, fallback to name
+                        tool_id = event.get("run_id") or event.get("name", "")
+                        tool_name = event.get("name", "")
+                        active_tools.add(tool_id)
+                        # Extract tool input, handling non-serializable objects
+                        tool_input = event["data"].get("input", {})
+                        # Convert to JSON-safe format
+                        try:
+                            json.dumps(tool_input)
+                        except (TypeError, ValueError):
+                            if isinstance(tool_input, dict):
+                                tool_input = {k: str(v) for k, v in tool_input.items()}
+                            else:
+                                tool_input = {"raw": str(tool_input)}
+
+                        await websocket.send_json(
+                            {
+                                "type": "tool_start",
+                                "tool": tool_name,
+                                "input": tool_input,
+                            }
+                        )
+
+                    elif kind == "on_tool_end":
+                        tool_id = event.get("run_id") or event.get("name", "")
+                        tool_name = event.get("name", "")
+                        active_tools.discard(tool_id)
+                        await websocket.send_json({"type": "tool_end", "tool": tool_name})
+
+                        # If all tools are done, flush buffered tokens
+                        if not active_tools and buffered_tokens:
+                            for token in buffered_tokens:
+                                await websocket.send_json({"type": "token", "content": token})
+                            buffered_tokens = []
+
+                    # Buffer or send tokens based on tool state
+                    if kind == "on_chat_model_stream" and node == "agent":
+                        chunk = event["data"]["chunk"]
+                        if chunk.content:
+                            if active_tools:
+                                # Tools still running - buffer the token
+                                buffered_tokens.append(chunk.content)
+                            else:
+                                # No active tools - send immediately
+                                await websocket.send_json(
+                                    {"type": "token", "content": chunk.content}
+                                )
+
+                # Close any remaining thinking blocks that didn't get on_tool_end
+                for tool_name in list(active_tools):
+                    await websocket.send_json({"type": "tool_end", "tool": tool_name})
+                    active_tools.discard(tool_name)
+
+                await websocket.send_json({"type": "done"})
+
+            except Exception as e:
+                logger.error("advisor_stream_error", error=str(e))
+                await websocket.send_json({"type": "error", "message": str(e)})
+
+    except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
 
 
