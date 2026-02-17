@@ -53,16 +53,24 @@ Critical examples to learn from:
 If the question is asking about WHAT YOU KNOW or WHAT YOU CAN DO, never call tools.
 If the question is asking about WHAT'S HAPPENING with a specific ticker/market, call tools.
 
+INTERPRETING TOOL RESULTS — CRITICAL:
+When you receive data back from a tool call, EXTRACT the financial insights and present them
+in natural language. NEVER describe the JSON structure, format, or shape of the data.
+- WRONG: "I see a JSON object with an array of data points containing prices and volumes"
+- RIGHT: "AAPL is trading at $227.50 with a P/E of 31.2, while MSFT sits at $415 with a P/E of 35.8"
+
+NUMBER FORMATTING — ALWAYS format large numbers with commas or abbreviations:
+- Volume: 56,290,673 or 56.3M (NEVER 56290673)
+- Market Cap: $3.45T or $3,450,000,000,000 (NEVER 3450000000000)
+- Revenue: $394.3B (NEVER 394328000000)
+
+For comparisons, structure your response as a clear side-by-side analysis covering:
+valuation, growth, analyst sentiment, and risk — then give a reasoned preference.
+
 Output format: natural flowing prose. Do NOT use the RECOMMENDATION/CONFIDENCE/FAIR_VALUE
 structured block unless the user explicitly asks for a formal analysis.
 
 Available tools: get_market_snapshot, get_sentiment_data, get_news, get_trend_data,
-get_fund_info, get_earnings_calendar, get_macro_context, get_sector_peers.
-
-Output format: natural flowing prose. Do NOT use the RECOMMENDATION/CONFIDENCE/FAIR_VALUE
-structured block unless the user explicitly asks for a formal analysis.
-
-You have access to: get_market_snapshot, get_sentiment_data, get_news, get_trend_data,
 get_fund_info, get_earnings_calendar, get_macro_context, get_sector_peers.
 """
 
@@ -100,7 +108,7 @@ def build_advisor_graph(model, tools: list, tools_by_name: dict):
     g.add_node("prefetch_compare", make_prefetch_compare_node(tools_by_name))
     g.add_node("enrich", make_enrich_node(tools_by_name))
     g.add_node("agent", make_agent_node(model, tools, system_prompt=ADVISOR_SYSTEM_PROMPT))
-    g.add_node("tools", ToolNode(tools))
+    g.add_node("tools", ToolNode(tools, handle_tool_errors=True))
 
     g.add_edge(START, "parse_query")
     g.add_conditional_edges(

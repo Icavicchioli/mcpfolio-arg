@@ -801,8 +801,11 @@ def get_earnings_calendar(ticker: str) -> dict:
 @mcp.tool()
 @with_retry()
 @circuit_breaker()
-def get_macro_context() -> dict:
+def get_macro_context(ticker: str = "") -> dict:  # noqa: ARG001
     """Fetches key macro market indicators: S&P 500 YTD return, VIX, and 10-year Treasury yield.
+
+    This tool takes NO required arguments. The optional ticker parameter is accepted
+    but ignored — this returns broad market data, not ticker-specific data.
 
     Results are cached for 30 minutes since macro conditions change slowly.
 
