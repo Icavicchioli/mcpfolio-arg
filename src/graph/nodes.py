@@ -279,7 +279,7 @@ def make_prefetch_node(tools_by_name: dict):
         }
 
         context_str = format_single_context(ticker, snapshot, sentiment or None, news or None)
-        prefetch_msg = HumanMessage(content=f"[Pre-fetched Market Data]\n{context_str}")
+        prefetch_msg = HumanMessage(content=f"[Current Market Data for {ticker}]\n{context_str}")
 
         return {
             "messages": [prefetch_msg],
@@ -390,7 +390,7 @@ def make_prefetch_compare_node(tools_by_name: dict):
             news_b or None,
         )
         prefetch_msg = HumanMessage(
-            content=f"[Pre-fetched Comparison Data: {ticker_a} vs {ticker_b}]\n{context_str}"
+            content=f"[Current Market Data: {ticker_a} vs {ticker_b}]\n{context_str}"
         )
 
         return {

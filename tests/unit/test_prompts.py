@@ -75,7 +75,7 @@ def test_format_single_context_dividend():
 def test_format_single_context_no_dividend():
     snap = {**SNAPSHOT, "dividend_yield": None}
     ctx = format_single_context("AAPL", snap, None, None)
-    assert "None" in ctx
+    assert "no dividend" in ctx
 
 
 def test_format_single_context_missing_price():

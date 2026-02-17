@@ -59,8 +59,11 @@ Write 2-3 polished sentences with a clear directional conclusion for a long-term
 """
 
 PREFETCH_NOTICE = (
-    "Market data has been pre-loaded above. "
-    "Focus on analysis; only call tools if the user asks for data not already provided."
+    "IMPORTANT: Live market data has already been retrieved and is shown above. "
+    "You HAVE the current data needed to answer. "
+    "DO NOT say you cannot access or provide market data — you already have it. "
+    "Answer directly using the market data shown above. "
+    "Only call additional tools if the user asks for data not already provided."
 )
 
 COMPARISON_SYSTEM_PROMPT = """You are a long-term investment analyst comparing two stocks on a 3-5+ year horizon.
@@ -180,7 +183,7 @@ def format_single_context(
     pe_ratio = snapshot.get("pe_ratio") or snapshot.get("trailing_pe")
     pe_display = pe_ratio if pe_ratio is not None else "N/A"
     div_yield = snapshot.get("dividend_yield")
-    div_str = f"{div_yield * 100:.2f}%" if div_yield else "None"
+    div_str = f"{div_yield * 100:.2f}%" if div_yield else "0% (no dividend)"
     vol_pct = snapshot.get("volatility_52_week_pct", 0)
     week_high = snapshot.get("fifty_two_week_high", "N/A")
     week_low = snapshot.get("fifty_two_week_low", "N/A")
