@@ -70,7 +70,21 @@ def _get_trend_data_logic(ticker: str, period: str = "1mo") -> dict:
 @with_retry()
 @circuit_breaker()
 def get_trend_data(ticker: str, period: str = "1mo") -> dict:
-    """Fetches historical price trend data for a given ticker."""
+    """Fetches historical price trend data for analyzing growth, declines, and volatility patterns.
+
+    Valid periods: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+
+    Use this to:
+    - Identify long-term growth trends (1y, 5y, max)
+    - Analyze recent volatility (1mo, 3mo)
+    - Compare year-to-date performance (ytd)
+    - Assess recovery from drawdowns (max for full history)
+
+    Returns daily close prices and volume for the period.
+    """
+    # Handle None being passed explicitly
+    if period is None:
+        period = "1mo"
     return _get_trend_data_logic(ticker, period)
 
 

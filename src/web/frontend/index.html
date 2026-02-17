@@ -55,6 +55,9 @@
       <button class="nav-btn" data-tab="portfolio">
         <i data-lucide="briefcase"></i> Portfolio
       </button>
+      <button class="nav-btn" data-tab="advisor">
+        <i data-lucide="message-square"></i> Advisor
+      </button>
     </nav>
 
     <main>
@@ -291,11 +294,57 @@
             </form>
           </div>
         </div>
+
+        <section id="advisor-section" class="hidden">
+          <div class="advisor-container glass">
+
+            <!-- Empty state: starter prompts (shown until first message sent) -->
+            <div id="advisor-empty" class="starter-prompts">
+              <p class="starter-title">Ask your AI financial advisor anything</p>
+              <div class="starter-grid">
+                <button class="starter-card" data-prompt="What's the current macro environment and how should I be positioned?">
+                  <strong>Macro outlook</strong>
+                  <span>How markets are positioned right now</span>
+                </button>
+                <button class="starter-card" data-prompt="Walk me through NVDA — is this valuation justified?">
+                  <strong>Deep dive: NVDA</strong>
+                  <span>Is the AI premium warranted?</span>
+                </button>
+                <button class="starter-card" data-prompt="What sectors look attractive right now based on fundamentals?">
+                  <strong>Sector rotation</strong>
+                  <span>Where to look for opportunity</span>
+                </button>
+                <button class="starter-card" data-prompt="How does AAPL compare to MSFT for long-term holding?">
+                  <strong>AAPL vs MSFT</strong>
+                  <span>Side-by-side long-term comparison</span>
+                </button>
+              </div>
+              <p class="advisor-disclaimer">
+                Not Financial Advice — This AI advisor is for informational and educational purposes only. It is not a substitute for professional financial advice. Always consult a licensed financial advisor before making investment decisions. Past performance does not guarantee future results.
+              </p>
+            </div>
+
+            <!-- Message thread (hidden until first message) -->
+            <div id="chat-messages" class="chat-messages hidden"></div>
+
+            <!-- Input bar (always visible) -->
+            <div class="chat-input-bar">
+              <textarea id="advisor-input" placeholder="Ask about any stock, ETF, or the market…" rows="1"></textarea>
+              <button id="advisor-send-btn" class="btn primary-btn" title="Send" style="padding: 0.5rem 1rem;">
+                ↑
+              </button>
+              <button id="advisor-clear-btn" class="icon-btn" title="New conversation">
+                <i data-lucide="rotate-ccw"></i>
+              </button>
+            </div>
+
+          </div>
+        </section>
       </div>
     </main>
 
     <footer class="glass-lite">
-      <p>&copy; 2026 MCPFolio | Local-First Financial Analyst</p>
+      <p>MCPFolio | Local-First Financial Analyst | Public Domain</p>
     </footer>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

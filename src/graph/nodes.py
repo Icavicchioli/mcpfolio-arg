@@ -6,7 +6,12 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from prompts import PREFETCH_NOTICE, SYSTEM_PROMPT, format_comparison_context, format_single_context
+from src.prompts import (
+    PREFETCH_NOTICE,
+    SYSTEM_PROMPT,
+    format_comparison_context,
+    format_single_context,
+)
 
 # Common English words and financial terms to filter from ticker extraction.
 # Single-letter entries: A (article), I (pronoun), and common finance shorthands
@@ -529,18 +534,24 @@ def make_enrich_node(tools_by_name: dict):
     return enrich_node
 
 
-def make_agent_node(model, tools: list):
+def make_agent_node(model, tools: list, system_prompt: str | None = None):
     """
     Return an agent reasoning node that decides whether to call tools or respond.
 
     Injects SYSTEM_PROMPT (+ PREFETCH_NOTICE when data is pre-loaded) at invocation
     time without persisting it in state.
+
+    Args:
+        model: LLM instance
+        tools: List of available tools
+        system_prompt: Optional custom system prompt (defaults to SYSTEM_PROMPT)
     """
+    _prompt = system_prompt or SYSTEM_PROMPT
 
     def agent_node(state):
-        system_content = SYSTEM_PROMPT
+        system_content = _prompt
         if state.get("prefetch_done"):
-            system_content = SYSTEM_PROMPT + "\n\n" + PREFETCH_NOTICE
+            system_content = _prompt + "\n\n" + PREFETCH_NOTICE
 
         messages = [SystemMessage(content=system_content)] + list(state["messages"])
         response = model.bind_tools(tools).invoke(messages)
