@@ -1246,7 +1246,7 @@ async def websocket_advisor(websocket: WebSocket):
                     tools_by_name = {t.name: t for t in tools}
                     ollama_config = {
                         **settings.get_ollama_config(),
-                        "temperature": 0.6,  # Higher temp for conversational advisor (vs 0.1 for structured analysis)
+                        "temperature": 0.5,  # Balanced temp for conversational advisor with accurate tool calling
                         "num_predict": 2048,  # Allow longer responses (default is ~512)
                     }
                     llm = ChatOllama(**ollama_config)
@@ -1338,7 +1338,13 @@ async def websocket_advisor(websocket: WebSocket):
                 # Close any remaining thinking blocks that didn't get on_tool_end
                 for tool_name in list(active_tools):
                     await websocket.send_json({"type": "tool_end", "tool": tool_name})
-                    active_tools.discard(tool_name)
+                active_tools.clear()
+
+                # Flush any tokens that were buffered while tools were active
+                if buffered_tokens:
+                    for token in buffered_tokens:
+                        await websocket.send_json({"type": "token", "content": token})
+                    buffered_tokens.clear()
 
                 await websocket.send_json({"type": "done"})
 

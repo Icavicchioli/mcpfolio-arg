@@ -188,9 +188,12 @@ def format_single_context(
     eps = snapshot.get("eps") or snapshot.get("trailing_eps") or "N/A"
     rev = snapshot.get("revenue")
     rev_str = f"${rev / 1e9:.1f}B" if rev and rev > 1e9 else f"${rev / 1e6:.0f}M" if rev else "N/A"
+    volume = snapshot.get("volume")
+    vol_str = f"{volume:,}" if volume else "N/A"
 
     context = f"""MARKET DATA for {ticker}:
 - Price: ${price} ({change_pct:+.2f}% today)
+- Volume: {vol_str}
 - Market Cap: {mkt_cap_str}
 - P/E Ratio: {pe_display}
 - EPS: {eps}
