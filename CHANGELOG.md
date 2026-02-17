@@ -22,6 +22,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (Phase D — Advisor tab: AI financial chat with real-time streaming)
+- `src/graph/advisor.py` — new file with `ADVISOR_SYSTEM_PROMPT` (conversational, pattern-based tool calling rules) and `build_advisor_graph()` factory function
+- `/ws/advisor` WebSocket endpoint — real-time streaming with `astream_events(version="v2")`; streams LLM tokens, tool_start, tool_end events; supports multi-turn memory via LangGraph `MemorySaver`
+- Advisor tab in web UI — ChatGPT-style chat interface with starter prompts, expandable thinking blocks, auto-resizing textarea, clear conversation button
+- **Thinking blocks** — each MCP tool call is shown as a collapsible `<details>` element with tool name, input JSON, spinner during execution, and checkmark on completion; collapsed by default with "View details" toggle
+- **Tool call buffering** — LLM tokens are buffered while tools are active to ensure data fetches complete before the response streams; prevents hallucination from responding before data arrives
+- **Portfolio context injection** — when portfolio is unlocked, current holdings are prepended as a fresh `SystemMessage` each turn (not stored in conversation history)
+- **Temperature 0.6** — tuned for natural conversation with strict "CRITICAL RULES - NEVER VIOLATE" accuracy constraints
+- **Pattern-based tool calling** — NEVER call tools for capability questions ("Do you know...", "Can you..."); ALWAYS call tools for specific tickers, market conditions, comparisons
+- Starter prompts: macro outlook, deep dive (NVDA), sector rotation, ticker comparison (AAPL vs MSFT)
+- Number formatting utility (`formatNumber()`) — applies abbreviated formatting (K, M, B) across all dashboard tabs
+- 5 new unit tests for Advisor (`tests/unit/test_advisor.py`)
+
+### Changed (Phase D)
+- `make_agent_node` now accepts optional `system_prompt` parameter (defaults to `SYSTEM_PROMPT` for backward compatibility)
+- `SessionManager` gains `advisor_graph` and `advisor_thread_id` fields for multi-turn conversation state
+- Icon library: Send button uses Unicode "↑" character instead of Lucide icon (icon rendering reliability issue)
+- Shutdown flow: removed redundant alert message (FastAPI response was sufficient)
+
+### Fixed (Phase D)
+- Import error in `src/graph/nodes.py`: changed `from prompts import` to `from src.prompts import`
+- Input bar visibility: adjusted height calculation from `calc(100vh - 160px)` to `calc(100vh - 180px)`
+- JSON serialization error: added try/except in WebSocket handler to convert non-serializable objects (like `ToolRuntime`) to strings
+- LLM responding before tools complete: implemented buffering system with `active_tools` set and `buffered_tokens` list; tokens are held until all tools finish
+- Thinking block spinners not closing: switched to tracking tools by `run_id` instead of name to handle duplicate tool calls; added force-close loop at response end
+- get_trend_data validation error: added explicit `None` handling for period parameter
+
 ### Added (Phase C — thesis tracking + SYSTEM_PROMPT formatting fix)
 - `src/persistence.py` — new `ThesisStore` class: encrypts per-analysis thesis records to `data/thesis.enc` using Fernet (same salt + same password as `SecurePortfolioManager`); one password unlocks both stores
 - `GET /api/thesis` — returns the 200 most recent thesis records across all tickers (newest-first); requires portfolio unlock, returns `401` when locked

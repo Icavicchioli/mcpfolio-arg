@@ -580,6 +580,77 @@ The `result` object in `complete` messages has the same shape as the `POST /api/
 
 ---
 
+### `ws://localhost:8000/ws/advisor`
+
+Real-time streaming endpoint for the Advisor chat interface. Streams LLM tokens, tool calls, and status events using LangGraph's `astream_events` API.
+
+**Send (user message)**
+```json
+{ "message": "How's NVDA doing?" }
+```
+
+**Send (clear conversation)**
+```json
+{ "action": "clear" }
+```
+
+**Receive (event stream)**
+
+Token event (during LLM response):
+```json
+{ "type": "token", "content": "Based on" }
+```
+
+Tool start event (when MCP tool begins):
+```json
+{
+  "type": "tool_start",
+  "tool": "get_market_snapshot",
+  "input": { "ticker": "NVDA" }
+}
+```
+
+Tool end event (when MCP tool completes):
+```json
+{ "type": "tool_end", "tool": "get_market_snapshot" }
+```
+
+Response complete event:
+```json
+{ "type": "done" }
+```
+
+Conversation cleared event:
+```json
+{ "type": "cleared" }
+```
+
+Error event:
+```json
+{ "type": "error", "message": "Tool execution failed: ..." }
+```
+
+**Event Flow**
+
+A typical exchange looks like:
+1. User sends `{ "message": "Tell me about AAPL" }`
+2. Server emits `tool_start` for `get_market_snapshot`
+3. Server emits `tool_end` for `get_market_snapshot`
+4. Server emits a stream of `token` events (LLM response, word by word)
+5. Server emits `done`
+
+The client buffers tokens during tool execution (while `active_tools` is non-empty) and only displays them after all tools complete, preventing the LLM from responding before data is fetched.
+
+**Conversation Memory**
+
+The endpoint uses LangGraph's `MemorySaver` checkpointer with a persistent `thread_id`. Follow-up questions like "what about its competitors?" work because the full conversation history is preserved. Sending `{ "action": "clear" }` resets the thread to a new UUID and clears the graph state.
+
+**Portfolio Context**
+
+When the portfolio is unlocked, the user's current holdings are injected as a fresh `SystemMessage` at the start of each turn. This context is NOT stored in the conversation history — it's added dynamically so the LLM always sees up-to-date holdings without polluting the thread state.
+
+---
+
 ## Error Format
 
 All HTTP errors follow FastAPI's default shape:
