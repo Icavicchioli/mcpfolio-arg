@@ -171,7 +171,7 @@ The salt is stored alongside the ciphertext. The password is never persisted. Th
 
 | Layer | Technology |
 |---|---|
-| Frontend | Vanilla JS (ES Modules), Vite 7, Chart.js, Lucide icons |
+| Frontend | Vanilla JS (ES Modules), Vite 7, Chart.js, Lucide icons; Node.js 22 via conda |
 | Backend | Python 3.11+, FastAPI, uvicorn |
 | LLM | Ollama (local inference), llama3.2:3b default |
 | MCP | FastMCP (stdio transport), langchain-mcp-adapters |
@@ -186,10 +186,8 @@ The salt is stored alongside the ciphertext. The password is never persisted. Th
 
 ## Requirements
 
-- **Python 3.11+**
+- **conda** — manages Python 3.11, Node.js 22, and all dependencies in one env
 - **Ollama** installed and running (`ollama serve`) — see [ollama.com](https://ollama.com)
-- **conda** (recommended) or any Python virtual environment manager
-- **Node.js 18+** (only needed to rebuild the frontend)
 
 ---
 
@@ -200,21 +198,12 @@ The salt is stored alongside the ciphertext. The password is never persisted. Th
 git clone https://github.com/adkarp/mcpfolio.git
 cd mcpfolio
 
-# 2. Create and activate the conda environment
-conda create -n mcpfolio python=3.11 -y
+# 2. Create the conda environment (includes Python 3.11, Node.js 22, and all dependencies)
+conda env create -f environment.yml
 conda activate mcpfolio
 
-# 3. Install Python dependencies
-pip install -r requirements.txt
-
-# 4. Pull an Ollama model (llama3.2:3b recommended)
+# 3. Pull an Ollama model (llama3.2:3b recommended)
 ollama pull llama3.2:3b
-
-# 5. (Optional) Rebuild the frontend
-cd src/web/frontend
-npm install
-npm run build
-cd ../../..
 ```
 
 ---
@@ -225,7 +214,7 @@ cd ../../..
 bash scripts/start-dashboard.sh
 ```
 
-The script activates the `mcpfolio` conda environment automatically, checks that Ollama is running, starts the FastAPI backend, waits for a healthy response, then opens **http://localhost:8000** in your browser.
+The script uses `conda run -n mcpfolio` to run everything inside the environment — no manual activation needed. It builds the frontend, checks that Ollama is running, starts the FastAPI backend, waits for a healthy response, then opens **http://localhost:8000** in your browser.
 
 ### CLI mode
 
@@ -281,6 +270,8 @@ All settings are controlled via environment variables with the `MCPFOLIO_` prefi
 ## Frontend Development
 
 ```bash
+# npm is included in the mcpfolio conda env — no separate Node.js install needed
+conda activate mcpfolio
 cd src/web/frontend
 npm install
 npm run dev      # Hot-reload dev server (proxies /api/* to FastAPI)
@@ -337,6 +328,7 @@ mcpfolio/
 │           └── dist/            # Production build output (gitignored)
 ├── .github/
 │   └── workflows/               # CI/CD: tests, dependencies, releases
+├── environment.yml              # conda env (Python 3.11, Node.js 22, all deps)
 ├── requirements.txt
 ├── .env.example
 └── CLAUDE.md                    # AI assistant project context
