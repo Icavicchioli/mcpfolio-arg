@@ -1150,14 +1150,18 @@ function handleAdvisorEvent(event) {
       ensureAIBubble();
       const block = createThinkingBlock(event.tool, event.input);
       state.advisorCurrentMsgEl.querySelector('.msg-thinking-area').appendChild(block);
-      state.advisorActiveBlocks[event.tool] = block;
+      // Use tool_id for unique tracking (same tool can be called multiple times)
+      const toolKey = event.tool_id || event.tool;
+      state.advisorActiveBlocks[toolKey] = block;
       scrollChat();
       break;
 
     case 'tool_end':
-      const b = state.advisorActiveBlocks[event.tool];
+      // Match by tool_id (unique) instead of tool name
+      const endToolKey = event.tool_id || event.tool;
+      const b = state.advisorActiveBlocks[endToolKey];
       if (b) closeThinkingBlock(b);
-      delete state.advisorActiveBlocks[event.tool];
+      delete state.advisorActiveBlocks[endToolKey];
       break;
 
     case 'done':

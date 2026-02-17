@@ -1276,7 +1276,8 @@ async def websocket_advisor(websocket: WebSocket):
             # ── Stream events ──
             try:
                 # Track active tools to buffer response until tools complete
-                active_tools = set()
+                # Maps tool_id -> tool_name for proper cleanup
+                active_tools: dict[str, str] = {}
                 buffered_tokens: list[str] = []
 
                 async for event in session.advisor_graph.astream_events(
@@ -1290,7 +1291,7 @@ async def websocket_advisor(websocket: WebSocket):
                         # Use run_id for unique tracking if available, fallback to name
                         tool_id = event.get("run_id") or event.get("name", "")
                         tool_name = event.get("name", "")
-                        active_tools.add(tool_id)
+                        active_tools[tool_id] = tool_name
                         # Extract tool input, handling non-serializable objects
                         tool_input = event["data"].get("input", {})
                         # Convert to JSON-safe format
@@ -1306,6 +1307,7 @@ async def websocket_advisor(websocket: WebSocket):
                             {
                                 "type": "tool_start",
                                 "tool": tool_name,
+                                "tool_id": tool_id,
                                 "input": tool_input,
                             }
                         )
@@ -1313,8 +1315,10 @@ async def websocket_advisor(websocket: WebSocket):
                     elif kind == "on_tool_end":
                         tool_id = event.get("run_id") or event.get("name", "")
                         tool_name = event.get("name", "")
-                        active_tools.discard(tool_id)
-                        await websocket.send_json({"type": "tool_end", "tool": tool_name})
+                        active_tools.pop(tool_id, None)
+                        await websocket.send_json(
+                            {"type": "tool_end", "tool": tool_name, "tool_id": tool_id}
+                        )
 
                         # If all tools are done, flush buffered tokens
                         if not active_tools and buffered_tokens:
@@ -1335,9 +1339,11 @@ async def websocket_advisor(websocket: WebSocket):
                                     {"type": "token", "content": chunk.content}
                                 )
 
-                # Close any remaining thinking blocks that didn't get on_tool_end
-                for tool_name in list(active_tools):
-                    await websocket.send_json({"type": "tool_end", "tool": tool_name})
+                # Close any remaining tools that didn't get on_tool_end
+                for tool_id, tool_name in list(active_tools.items()):
+                    await websocket.send_json(
+                        {"type": "tool_end", "tool": tool_name, "tool_id": tool_id}
+                    )
                 active_tools.clear()
 
                 # Flush any tokens that were buffered while tools were active
