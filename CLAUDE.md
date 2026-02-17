@@ -60,7 +60,7 @@ All nodes are created via factory functions so they capture `model` and `tools_b
 | `make_prefetch_node(tools_by_name)` | Fires 3 parallel MCP calls (snapshot, sentiment, news) for a single ticker; populates state and adds a context `HumanMessage` |
 | `make_prefetch_compare_node(tools_by_name)` | Fires 6 parallel MCP calls (3 per ticker) for a two-ticker comparison; adds a side-by-side context `HumanMessage` |
 | `make_enrich_node(tools_by_name)` | Data-aware enrichment for single-ticker path. Always fetches macro context. Branches: ETF → fund holdings; stock → earnings calendar + sector peers; ≥2 failed tools → data-caveat warning; earnings ≤7 days → catalyst alert |
-| `make_agent_node(model, tools)` | LLM reasoning node; injects `SYSTEM_PROMPT` (+ `PREFETCH_NOTICE` when prefetch is done) at invocation time |
+| `make_agent_node(model, tools, system_prompt=None)` | LLM reasoning node; injects `system_prompt` (defaults to `SYSTEM_PROMPT`) + `PREFETCH_NOTICE` when prefetch is done at invocation time |
 
 #### Graph Edges (`src/graph/edges.py`)
 
@@ -84,6 +84,7 @@ All nodes are created via factory functions so they capture `model` and `tools_b
 FastAPI app. Key flows:
 - **`POST /api/analyze`** — calls `run_analysis_task`, which fetches market snapshot, sentiment, and news **in parallel** via `asyncio.gather`, then calls the LLM directly (no LangGraph); result is appended to in-memory history and persisted to `ThesisStore` when unlocked.
 - **`POST /api/compare`** — fetches 6 MCP tools in parallel (3 per ticker), formats a side-by-side context with `format_comparison_context`, calls LLM with `COMPARISON_SYSTEM_PROMPT`, returns `ComparisonResponse` with `verdict`.
+- **`/ws/advisor`** — WebSocket endpoint for the Advisor chat tab; uses LangGraph's `astream_events(version="v2")` to stream LLM tokens and tool events in real-time; manages multi-turn memory via `MemorySaver` with persistent `thread_id`; buffers tokens while tools are active to prevent hallucination before data arrives; injects portfolio context when unlocked.
 
 ### Shared Prompts & Formatters (`src/prompts.py`)
 
@@ -92,6 +93,19 @@ FastAPI app. Key flows:
 - `PREFETCH_NOTICE` — appended to `SYSTEM_PROMPT` when pre-fetched data is already in context
 - `format_single_context(ticker, snapshot, sentiment, news)` — builds structured LLM context string; used by both the CLI prefetch node and `run_analysis_task`
 - `format_comparison_context(...)` — builds side-by-side context string; used by both CLI `prefetch_compare` node and `POST /api/compare`
+
+### Advisor Graph (`src/graph/advisor.py`)
+
+The Advisor tab uses the same LangGraph topology as the CLI but with a different system prompt and temperature:
+
+- **`ADVISOR_SYSTEM_PROMPT`** — conversational financial advisor instruction set with pattern-based tool calling rules:
+  - NEVER call tools for capability questions ("Do you know...", "Can you...", educational questions)
+  - ALWAYS call tools for specific tickers, market conditions, comparisons
+  - No structured output requirements (unlike `SYSTEM_PROMPT` which requires `RECOMMENDATION:`, `CONFIDENCE:`, etc.)
+  - Temperature 0.6 with strict "CRITICAL RULES - NEVER VIOLATE" accuracy constraints
+- **`build_advisor_graph(model, tools, tools_by_name)`** — factory function that returns a compiled LangGraph with `MemorySaver` checkpointer; reuses the same nodes as the CLI graph but passes `ADVISOR_SYSTEM_PROMPT` to `make_agent_node`
+
+The Advisor graph is lazy-initialized in `SessionManager` on first WebSocket connection and persists for the session. The `thread_id` is reset when the user clicks "Clear conversation".
 
 ### Entry Point
 `src/main.py` - CLI interface

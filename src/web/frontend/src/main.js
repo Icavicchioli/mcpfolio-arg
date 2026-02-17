@@ -18,14 +18,41 @@ const {
   Lock,
   ShieldLock,
   PieChart,
-  Check
+  Check,
+  MessageSquare,
+  ArrowUpCircle,
+  RotateCcw
 } = window.lucide;
 
 createIcons({
   icons: {
-    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check
+    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check, MessageSquare, ArrowUpCircle, RotateCcw
   }
 });
+
+// ── Utility Functions ──────────────────────────────────────────
+
+/**
+ * Format large numbers with commas or abbreviations (K, M, B)
+ * @param {number} num - The number to format
+ * @param {boolean} useAbbrev - Use abbreviations for large numbers (default: false)
+ * @param {number} decimals - Decimal places for abbreviated numbers (default: 1)
+ */
+function formatNumber(num, useAbbrev = false, decimals = 1) {
+  if (num == null || isNaN(num)) return '---';
+
+  if (useAbbrev) {
+    if (Math.abs(num) >= 1e9) {
+      return (num / 1e9).toFixed(decimals) + 'B';
+    } else if (Math.abs(num) >= 1e6) {
+      return (num / 1e6).toFixed(decimals) + 'M';
+    } else if (Math.abs(num) >= 1e3) {
+      return (num / 1e3).toFixed(decimals) + 'K';
+    }
+  }
+
+  return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
 
 // App State
 const state = {
@@ -44,7 +71,14 @@ const state = {
   activeTab: 'dashboard',
   marketData: {},     // Cache for lightweight price data
   currentNews: [],    // Full news cache — sliced on render
-  thesis: []          // Thesis history (populated after portfolio unlock)
+  thesis: [],         // Thesis history (populated after portfolio unlock)
+  // Advisor state
+  advisorWS: null,
+  advisorStreaming: false,
+  advisorCurrentMsgEl: null,   // <div> of the in-progress AI bubble
+  advisorCurrentTextEl: null,  // text node / content div inside bubble
+  advisorActiveBlocks: {},     // tool → <details> element (open thinking blocks)
+  advisorHasMessages: false
 };
 
 // --- Initialization ---
@@ -86,6 +120,30 @@ document.addEventListener('DOMContentLoaded', () => {
   // Re-render news when count changes (no re-fetch needed — we cache the full list)
   document.getElementById('news-count').addEventListener('change', () => {
     renderNews(state.currentNews);
+  });
+
+  // Advisor event listeners
+  document.getElementById('advisor-send-btn').addEventListener('click', handleAdvisorSend);
+  document.getElementById('advisor-clear-btn').addEventListener('click', handleAdvisorClear);
+  document.getElementById('advisor-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAdvisorSend();
+    }
+  });
+
+  // Auto-resize textarea
+  document.getElementById('advisor-input').addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+
+  // Starter prompts
+  document.querySelectorAll('.starter-card').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('advisor-input').value = btn.dataset.prompt;
+      handleAdvisorSend();
+    });
   });
 
   // Poll status every 10s
@@ -302,19 +360,18 @@ function updateUI(data) {
   document.getElementById('ticker-display').textContent = data.ticker;
   state.activePrice = data.market_snapshot.current_price || 0;
   const priceEl = document.getElementById('price-display');
-  priceEl.textContent = `$${state.activePrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  priceEl.textContent = `$${formatNumber(state.activePrice)}`;
   priceEl.style.background = '';
   priceEl.style.color = '';
   priceEl.style.border = '';
-  document.getElementById('volume-display').textContent = (data.market_snapshot.volume || 0).toLocaleString();
-  document.getElementById('high-display').textContent = `$${(data.market_snapshot.high_52_week || 0).toFixed(2)}`;
-  document.getElementById('low-display').textContent = `$${(data.market_snapshot.low_52_week || 0).toFixed(2)}`;
+  document.getElementById('volume-display').textContent = formatNumber(data.market_snapshot.volume, true);
+  document.getElementById('high-display').textContent = `$${formatNumber(data.market_snapshot.high_52_week)}`;
+  document.getElementById('low-display').textContent = `$${formatNumber(data.market_snapshot.low_52_week)}`;
 
   // NEW metrics
   if (document.getElementById('mktcap-display')) {
     const mktcap = data.market_snapshot.market_cap;
-    document.getElementById('mktcap-display').textContent = mktcap ?
-      (mktcap >= 1e12 ? (mktcap / 1e12).toFixed(2) + 'T' : (mktcap / 1e9).toFixed(2) + 'B') : '---';
+    document.getElementById('mktcap-display').textContent = formatNumber(mktcap, true, 2);
   }
   if (document.getElementById('pe-display')) {
     document.getElementById('pe-display').textContent = data.market_snapshot.pe_ratio ? data.market_snapshot.pe_ratio.toFixed(2) : '---';
@@ -444,6 +501,7 @@ function switchTab(tab) {
   // Toggle Sections
   document.getElementById('dashboard-section').classList.toggle('hidden', tab !== 'dashboard');
   document.getElementById('portfolio-section').classList.toggle('hidden', tab !== 'portfolio');
+  document.getElementById('advisor-section').classList.toggle('hidden', tab !== 'advisor');
 
   // Watchlist sidebar: only visible on dashboard
   const watchlistPanel = document.getElementById('watchlist-panel');
@@ -458,6 +516,12 @@ function switchTab(tab) {
 
   if (tab === 'portfolio') {
     updatePortfolioStateUI();
+  }
+
+  if (tab === 'advisor') {
+    connectAdvisorWS();
+    // Re-render icons for advisor tab
+    createIcons({ icons: { ArrowUpCircle, RotateCcw, MessageSquare } });
   }
 }
 
@@ -630,11 +694,11 @@ function renderPortfolio() {
     return `
       <tr>
         <td><span class="portfolio-ticker" onclick="selectTicker('${item.ticker}')">${item.ticker}</span></td>
-        <td>${item.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-        <td>$${item.cost_basis.toFixed(2)}</td>
-        <td>$${currentPrice.toFixed(2)}</td>
-        <td>$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td class="${plClass}">${plSign}$${Math.abs(pl).toFixed(2)}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${plPercent.toFixed(2)}%</span></td>
+        <td>${formatNumber(item.quantity, false)}</td>
+        <td>$${formatNumber(item.cost_basis)}</td>
+        <td>$${formatNumber(currentPrice)}</td>
+        <td>$${formatNumber(value)}</td>
+        <td class="${plClass}">${plSign}$${formatNumber(Math.abs(pl))}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${plPercent.toFixed(2)}%</span></td>
         <td>
           <button class="icon-btn small danger-icon" onclick="handleRemoveHolding('${item.ticker}')" title="Remove">
             <i data-lucide="trash-2"></i>
@@ -650,9 +714,9 @@ function renderPortfolio() {
   const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
   const plSign = totalPL >= 0 ? '+' : '';
 
-  document.getElementById('total-value').textContent = `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  document.getElementById('total-value').textContent = `$${formatNumber(totalValue)}`;
   const plEl = document.getElementById('total-pl');
-  plEl.textContent = `${plSign}$${Math.abs(totalPL).toFixed(2)} (${plSign}${totalPLPct.toFixed(2)}%)`;
+  plEl.textContent = `${plSign}$${formatNumber(Math.abs(totalPL))} (${plSign}${totalPLPct.toFixed(2)}%)`;
   plEl.className = totalPL >= 0 ? 'plus' : 'minus';
 
   // Render per-holding breakdown sidebar
@@ -678,8 +742,8 @@ function renderPortfolioBreakdown() {
       <div class="breakdown-item">
         <div class="breakdown-ticker">${item.ticker}</div>
         <div class="breakdown-detail">
-          <span>${item.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} shares</span>
-          <span class="${plClass}">${plSign}$${Math.abs(pl).toFixed(2)}</span>
+          <span>${formatNumber(item.quantity, false)} shares</span>
+          <span class="${plClass}">${plSign}$${formatNumber(Math.abs(pl))}</span>
         </div>
       </div>
     `;
@@ -759,15 +823,15 @@ window.handleRemoveHolding = async (ticker) => {
 };
 
 async function handleShutdown() {
-  if (!confirm('Are you sure you want to SHUT DOWN the dashboard and Ollama?')) return;
+  if (!confirm('Shut down dashboard and Ollama?')) return;
 
   try {
-    const res = await fetch('/api/admin/shutdown', { method: 'POST' });
-    const data = await res.json();
-    alert(data.message);
+    await fetch('/api/admin/shutdown', { method: 'POST' });
+    // No need for second message - just close
     window.close();
   } catch (err) {
     console.error('Shutdown failed:', err);
+    alert('Shutdown request failed. Please stop manually.');
   }
 }
 
@@ -1033,3 +1097,221 @@ window.toggleThesisExpand = (id) => {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('hidden');
 };
+
+// ── Advisor Chat Functions ──────────────────────────────────────────
+
+const TOOL_LABELS = {
+  get_market_snapshot:    'Fetching market data',
+  get_sentiment_data:     'Checking analyst sentiment',
+  get_news:               'Reading latest news',
+  get_macro_context:      'Checking macro environment',
+  get_sector_peers:       'Finding sector peers',
+  get_earnings_calendar:  'Looking up earnings calendar',
+  get_fund_info:          'Fetching fund holdings',
+  get_trend_data:         'Getting price trend',
+};
+
+function connectAdvisorWS() {
+  if (state.advisorWS?.readyState === WebSocket.OPEN) return;
+  const ws = new WebSocket(`ws://${location.host}/ws/advisor`);
+  state.advisorWS = ws;
+
+  ws.onopen = () => {
+    console.log('Advisor WebSocket connected');
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      handleAdvisorEvent(JSON.parse(e.data));
+    } catch (err) {
+      console.error('Failed to handle advisor event:', err);
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error('Advisor WebSocket error:', err);
+  };
+
+  ws.onclose = () => {
+    console.log('Advisor WebSocket closed, reconnecting...');
+    setTimeout(connectAdvisorWS, 2000);  // auto-reconnect
+  };
+}
+
+function handleAdvisorEvent(event) {
+  switch (event.type) {
+    case 'token':
+      ensureAIBubble();
+      state.advisorCurrentTextEl.insertAdjacentText('beforeend', event.content);
+      scrollChat();
+      break;
+
+    case 'tool_start':
+      ensureAIBubble();
+      const block = createThinkingBlock(event.tool, event.input);
+      state.advisorCurrentMsgEl.querySelector('.msg-thinking-area').appendChild(block);
+      state.advisorActiveBlocks[event.tool] = block;
+      scrollChat();
+      break;
+
+    case 'tool_end':
+      const b = state.advisorActiveBlocks[event.tool];
+      if (b) closeThinkingBlock(b);
+      delete state.advisorActiveBlocks[event.tool];
+      break;
+
+    case 'done':
+      finalizeAIBubble();
+      setAdvisorInputEnabled(true);
+      break;
+
+    case 'cleared':
+      clearChatUI();
+      break;
+
+    case 'error':
+      appendErrorBubble(event.message);
+      setAdvisorInputEnabled(true);
+      break;
+  }
+}
+
+function ensureAIBubble() {
+  if (state.advisorCurrentMsgEl) return;
+  hideEmptyState();
+  const el = document.createElement('div');
+  el.className = 'msg msg-ai streaming';
+  el.innerHTML = `
+    <div class="msg-thinking-area"></div>
+    <div class="msg-text"></div>`;
+  document.getElementById('chat-messages').appendChild(el);
+  state.advisorCurrentMsgEl  = el;
+  state.advisorCurrentTextEl = el.querySelector('.msg-text');
+}
+
+function finalizeAIBubble() {
+  if (!state.advisorCurrentMsgEl) return;
+  const text = state.advisorCurrentTextEl.textContent;
+  state.advisorCurrentTextEl.innerHTML = window.marked
+    ? window.marked.parse(text)
+    : text.replace(/\n/g, '<br>');
+  state.advisorCurrentMsgEl.classList.remove('streaming');
+  state.advisorCurrentMsgEl = null;
+  state.advisorCurrentTextEl = null;
+}
+
+function appendUserBubble(text) {
+  hideEmptyState();
+  const el = document.createElement('div');
+  el.className = 'msg msg-user';
+  el.textContent = text;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
+function appendErrorBubble(message) {
+  const el = document.createElement('div');
+  el.className = 'msg msg-error';
+  el.textContent = `Error: ${message}`;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
+function createThinkingBlock(tool, input) {
+  const label  = TOOL_LABELS[tool] || tool;
+  const ticker = input?.ticker ? ` for ${input.ticker.toUpperCase()}` : '';
+  const el = document.createElement('details');
+  el.className = 'thinking-block';
+  // Start collapsed - user can click to expand
+  el.innerHTML = `
+    <summary>
+      <span class="thinking-spinner"></span>
+      <span class="thinking-label">${label}${ticker}</span>
+      <span class="thinking-toggle"></span>
+    </summary>
+    <div class="thinking-body">
+      <pre>${JSON.stringify(input, null, 2)}</pre>
+    </div>`;
+  return el;
+}
+
+function closeThinkingBlock(el) {
+  el.removeAttribute('open');
+  el.querySelector('.thinking-spinner').className = 'thinking-done';
+}
+
+function hideEmptyState() {
+  const emptyEl = document.getElementById('advisor-empty');
+  const messagesEl = document.getElementById('chat-messages');
+  if (!state.advisorHasMessages) {
+    emptyEl.classList.add('hidden');
+    messagesEl.classList.remove('hidden');
+    state.advisorHasMessages = true;
+  }
+}
+
+function clearChatUI() {
+  document.getElementById('chat-messages').innerHTML = '';
+  document.getElementById('advisor-empty').classList.remove('hidden');
+  document.getElementById('chat-messages').classList.add('hidden');
+  state.advisorHasMessages = false;
+  state.advisorCurrentMsgEl = null;
+  state.advisorCurrentTextEl = null;
+  state.advisorActiveBlocks = {};
+}
+
+function scrollChat() {
+  const container = document.getElementById('chat-messages');
+  if (container) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function setAdvisorInputEnabled(enabled) {
+  const input = document.getElementById('advisor-input');
+  const sendBtn = document.getElementById('advisor-send-btn');
+  input.disabled = !enabled;
+  sendBtn.disabled = !enabled;
+  state.advisorStreaming = !enabled;
+}
+
+async function handleAdvisorSend() {
+  const input = document.getElementById('advisor-input');
+  const text = input.value.trim();
+  if (!text || state.advisorStreaming) return;
+
+  // Check WebSocket connection
+  if (!state.advisorWS || state.advisorWS.readyState !== WebSocket.OPEN) {
+    console.error('WebSocket not connected, attempting to reconnect...');
+    connectAdvisorWS();
+    setTimeout(() => {
+      if (state.advisorWS?.readyState === WebSocket.OPEN) {
+        handleAdvisorSend();
+      } else {
+        alert('Connection to advisor service failed. Please refresh the page.');
+      }
+    }, 1000);
+    return;
+  }
+
+  input.value = '';
+  input.style.height = 'auto';
+  setAdvisorInputEnabled(false);
+
+  appendUserBubble(text);
+
+  try {
+    state.advisorWS.send(JSON.stringify({ message: text }));
+  } catch (err) {
+    console.error('Failed to send message:', err);
+    appendErrorBubble('Failed to send message. Please try again.');
+    setAdvisorInputEnabled(true);
+  }
+}
+
+async function handleAdvisorClear() {
+  if (state.advisorHasMessages) {
+    if (!confirm('Start a new conversation? This will clear the current chat history.')) return;
+  }
+  state.advisorWS.send(JSON.stringify({ action: 'clear' }));
+}
