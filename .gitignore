@@ -1,6 +1,9 @@
 # Improvements folder (internal planning)
 .improvements/
 
+# Security scan reports
+bandit_full_report.txt
+
 # Python
 __pycache__/
 *.py[cod]

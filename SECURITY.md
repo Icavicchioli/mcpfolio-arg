@@ -4,9 +4,7 @@ MCPFolio is a single-user local application. It binds to `localhost` by default 
 
 ## Reporting a Vulnerability
 
-Do not open a public GitHub Issue for security vulnerabilities.
-
-Use [GitHub's private vulnerability reporting](https://github.com/adkarp/mcpfolio/security/advisories/new) or email the maintainer directly (contact visible in your fork/clone context).
+Open a [GitHub Issue](../../issues) or use [GitHub's private vulnerability reporting](https://github.com/adkarp/mcpfolio/security/advisories/new) for sensitive disclosures.
 
 Include a description of the vulnerability, steps to reproduce, and potential impact.
 

@@ -138,7 +138,7 @@ All settings have the `MCPFOLIO_` prefix and are documented in `src/config.py`.
 
 ## Submitting Changes
 
-1. **Create a branch** from `main`:
+1. **Create a new branch**:
    ```bash
    git checkout -b feat/my-feature
    ```

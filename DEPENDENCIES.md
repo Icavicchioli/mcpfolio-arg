@@ -41,7 +41,7 @@ pip install -e ".[dev]"
 | Package | Version | Purpose |
 |---------|---------|---------|
 | langgraph | 1.0.8 | State machine orchestration |
-| langchain-core | 1.2.9 | LangChain framework |
+| langchain-core | 1.2.13 | LangChain framework |
 | langchain-ollama | 1.0.1 | Ollama integration |
 | langchain-mcp-adapters | 0.2.1 | MCP to LangChain adapter |
 | mcp | 1.26.0 | Model Context Protocol |

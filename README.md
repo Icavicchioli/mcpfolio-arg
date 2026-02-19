@@ -31,7 +31,7 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 - **Institutional sentiment** — horizontal bar chart of Buy / Strong Buy / Hold / Sell / Strong Sell counts from the most recent analyst ratings period
 - **Market news** — up to 20 recent articles fetched per ticker; article count is adjustable live without re-running the full analysis
 - **Watchlist sidebar** — bookmark tickers for quick one-click re-analysis; prices are batch-fetched in parallel at startup and persist between sessions
-- **Ticker comparison** — `POST /api/compare` fetches data for two tickers in parallel (6 concurrent MCP calls) and returns a structured side-by-side analysis with a BUY verdict
+- **Ticker comparison** — `POST /api/compare` fetches data for two tickers in parallel (6 concurrent MCP calls) and returns a structured side-by-side analysis with a verdict naming the recommended ticker
 
 ### Portfolio
 - **Encrypted local storage** — holdings are encrypted with AES-256 (Fernet) using a PBKDF2-derived key; the password never leaves the device
