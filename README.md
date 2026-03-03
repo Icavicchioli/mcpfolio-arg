@@ -1,6 +1,5 @@
 # MCPFolio
 
-[![CI](https://github.com/adkarp/mcpfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/adkarp/mcpfolio/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: Public Domain](https://img.shields.io/badge/license-Public%20Domain-brightgreen)](#license)
 

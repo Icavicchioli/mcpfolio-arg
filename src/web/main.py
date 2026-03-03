@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -117,6 +118,38 @@ class ComparisonResponse(BaseModel):
     news_b: list[dict] | None = None
     ai_analysis: str
     verdict: str  # ticker_a value, ticker_b value, or "EQUAL"
+
+
+class MarketRegionData(BaseModel):
+    name: str
+    change_pct: float
+    weight: float
+
+
+class MarketStateResponse(BaseModel):
+    regions: list[MarketRegionData]
+    vix: float | None = None
+    overall_change_pct: float | None = None
+    market_regime: str = "Unknown"
+    treasury_10y: float | None = None
+
+
+class FluidTickerData(BaseModel):
+    """Per-ticker metrics for the Market Fluid simulation"""
+
+    ticker: str
+    price_change_pct: float
+    volume_ratio: float
+    volatility_52w: float
+    market_cap: float
+    pl_pct: float | None = None  # portfolio scope only
+
+
+class FluidDataResponse(BaseModel):
+    """Response for /api/fluid/data"""
+
+    scope: str
+    tickers: list[FluidTickerData]
 
 
 class SecurePortfolioManager:
@@ -563,13 +596,17 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
 
     structured = parse_llm_output(ai_analysis)
 
+    # Strip the structured header block from the display text — keep only the ## narrative
+    _parts = re.split(r"(?=^##\s)", ai_analysis, maxsplit=1, flags=re.MULTILINE)
+    display_analysis = _parts[-1].strip() if len(_parts) > 1 else ai_analysis
+
     response = AnalysisResponse(
         ticker=request.ticker.upper(),
         timestamp=datetime.now(),
         market_snapshot=market_data,
         sentiment=sentiment_data,
         news=news_data,
-        ai_analysis=ai_analysis,
+        ai_analysis=display_analysis,
         risk_score=risk_score,
         recommendation=structured["recommendation"],
         confidence=structured["confidence"],
@@ -1354,6 +1391,186 @@ async def websocket_advisor(websocket: WebSocket):
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
+
+@app.get("/api/fluid/data", response_model=FluidDataResponse)
+async def get_fluid_data(scope: str = "market"):
+    """
+    Lightweight financial metrics for the Market Fluid simulation.
+
+    scope="market"    → watchlist tickers or defaults (SPY, QQQ, NVDA, AAPL, BTC-USD)
+    scope="portfolio" → portfolio holdings (401 if locked); includes P/L %
+    """
+    import yfinance as yf
+
+    DEFAULTS = ["SPY", "QQQ", "NVDA", "AAPL", "BTC-USD"]
+
+    if scope == "portfolio":
+        if not session.portfolio_manager.is_unlocked():
+            raise HTTPException(status_code=401, detail="Portfolio locked")
+        holdings = session.portfolio_manager.load()
+        tickers = [h.ticker for h in holdings]
+        cost_basis_map = {h.ticker: h.cost_basis for h in holdings}
+    else:
+        watchlist_tickers = [w.ticker for w in session.watchlist]
+        tickers = watchlist_tickers if watchlist_tickers else DEFAULTS
+        cost_basis_map = {}
+
+    async def _fetch_ticker(ticker: str) -> FluidTickerData | None:
+        cost_basis = cost_basis_map.get(ticker)
+
+        def _get() -> FluidTickerData:
+            t = yf.Ticker(ticker)
+            fi = t.fast_info
+
+            last = getattr(fi, "last_price", None) or getattr(fi, "previous_close", None) or 0.0
+            prev = getattr(fi, "previous_close", None) or last
+            change = ((float(last) - float(prev)) / float(prev) * 100) if prev else 0.0
+
+            avg_vol = float(getattr(fi, "three_month_average_volume", None) or 1)
+            curr_vol = float(getattr(fi, "regular_market_volume", None) or avg_vol)
+            vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 1.0
+
+            hi = getattr(fi, "year_high", None) or getattr(fi, "fifty_two_week_high", None) or last
+            lo = getattr(fi, "year_low", None) or getattr(fi, "fifty_two_week_low", None) or last
+            mid = ((float(hi) + float(lo)) / 2) if (hi and lo) else (float(last) or 1.0)
+            vol_52w = abs(float(hi) - float(lo)) / mid if mid > 0 else 0.2
+
+            mkt_cap = float(getattr(fi, "market_cap", None) or 1e9)
+
+            pl: float | None = None
+            if cost_basis and last:
+                pl = (float(last) - float(cost_basis)) / float(cost_basis) * 100
+
+            return FluidTickerData(
+                ticker=ticker,
+                price_change_pct=round(change, 4),
+                volume_ratio=round(vol_ratio, 4),
+                volatility_52w=round(vol_52w, 4),
+                market_cap=mkt_cap,
+                pl_pct=round(pl, 4) if pl is not None else None,
+            )
+
+        try:
+            return await asyncio.to_thread(_get)
+        except Exception as e:
+            logger.warning("fluid_data_fetch_error", ticker=ticker, error=str(e))
+            return None
+
+    results = await asyncio.gather(
+        *[_fetch_ticker(t) for t in tickers],
+        return_exceptions=True,
+    )
+    fluid_tickers = [r for r in results if isinstance(r, FluidTickerData)]
+    return FluidDataResponse(scope=scope, tickers=fluid_tickers)
+
+
+@app.get("/api/market/state", response_model=MarketStateResponse)
+async def get_market_state():
+    """World market state for the splash screen fluid simulation."""
+    import yfinance as yf
+
+    INDICES = [
+        ("^GSPC", "Americas", 0.40),
+        ("^IXIC", "Americas", 0.20),
+        ("^FTSE", "Europe", 0.15),
+        ("^GDAXI", "Europe", 0.10),
+        ("^N225", "Asia", 0.10),
+        ("^HSI", "Asia", 0.05),
+        ("GC=F", "Commodities", 0.50),
+        ("CL=F", "Commodities", 0.50),
+        ("BTC-USD", "Crypto", 1.00),
+    ]
+    VIX_TICKER = "^VIX"
+    TREASURY_TICKER = "^TNX"
+
+    def _fetch_change(ticker: str) -> float | None:
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            last = getattr(fi, "last_price", None) or getattr(fi, "previous_close", None)
+            prev = getattr(fi, "previous_close", None)
+            if last and prev and prev != 0:
+                return (float(last) - float(prev)) / float(prev) * 100
+        except Exception:
+            pass
+        return None
+
+    def _fetch_level(ticker: str) -> float | None:
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            price = getattr(fi, "last_price", None)
+            return float(price) if price is not None else None
+        except Exception:
+            return None
+
+    all_tickers = [t for t, _, _ in INDICES] + [VIX_TICKER, TREASURY_TICKER]
+    results = await asyncio.gather(
+        *[
+            asyncio.to_thread(
+                _fetch_change if t not in (VIX_TICKER, TREASURY_TICKER) else _fetch_level, t
+            )
+            for t in all_tickers
+        ],
+        return_exceptions=True,
+    )
+
+    idx_results: dict[str, float | None] = {}
+    for t, v in zip(all_tickers, results, strict=False):
+        idx_results[t] = v if isinstance(v, float | int) else None
+
+    vix = idx_results.get(VIX_TICKER)
+    treasury = idx_results.get(TREASURY_TICKER)
+
+    region_buckets: dict[str, list[tuple[float, float]]] = {}
+    for ticker, region, weight in INDICES:
+        chg = idx_results.get(ticker)
+        if chg is not None:
+            region_buckets.setdefault(region, []).append((chg, weight))
+
+    REGION_WEIGHTS = {
+        "Americas": 0.45,
+        "Europe": 0.25,
+        "Asia": 0.20,
+        "Commodities": 0.05,
+        "Crypto": 0.05,
+    }
+    regions = []
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for region_name, pairs in region_buckets.items():
+        total_w = sum(w for _, w in pairs)
+        region_chg = sum(c * w for c, w in pairs) / total_w if total_w else 0
+        regions.append(
+            MarketRegionData(
+                name=region_name,
+                change_pct=round(region_chg, 3),
+                weight=REGION_WEIGHTS.get(region_name, 0.1),
+            )
+        )
+        rw = REGION_WEIGHTS.get(region_name, 0.1)
+        weighted_sum += region_chg * rw
+        total_weight += rw
+
+    overall = round(weighted_sum / total_weight, 3) if total_weight else None
+
+    if vix is not None and vix > 25:
+        regime = "High Volatility"
+    elif overall is not None and overall > 0.5:
+        regime = "Bull"
+    elif overall is not None and overall < -0.5:
+        regime = "Bear"
+    elif overall is not None:
+        regime = "Mixed"
+    else:
+        regime = "Unknown"  # no live data (markets closed / rate-limited)
+
+    return MarketStateResponse(
+        regions=regions,
+        vix=round(vix, 2) if vix else None,
+        overall_change_pct=overall,
+        market_regime=regime,
+        treasury_10y=round(float(treasury), 3) if treasury else None,
+    )
 
 
 if __name__ == "__main__":

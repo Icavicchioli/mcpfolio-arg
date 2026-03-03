@@ -15,6 +15,18 @@
 </head>
 
 <body>
+  <div id="market-lockscreen">
+    <canvas id="lockscreen-canvas"></canvas>
+    <div class="lockscreen-content">
+      <div class="lockscreen-logo">
+        <div class="logo-mark">MF</div>
+        <h1>MCP<span>Folio</span></h1>
+      </div>
+      <p id="lockscreen-status" class="lockscreen-status">Loading world markets...</p>
+      <button id="lockscreen-enter-btn" class="btn primary-btn lockscreen-enter hidden">Enter</button>
+    </div>
+  </div>
+
   <div id="app">
     <header class="glass">
       <div class="logo">
@@ -32,6 +44,9 @@
         <select id="model-select" title="Switch Ollama Model">
           <option value="">Loading models...</option>
         </select>
+        <button id="lock-screen-btn" class="icon-btn" title="Lock screen">
+          <i data-lucide="lock"></i>
+        </button>
         <button id="shutdown-btn" class="icon-btn danger" title="Shutdown Server">
           <i data-lucide="power"></i>
         </button>
