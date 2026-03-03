@@ -7,7 +7,7 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0   # disables auto-PRs
     reviewers:
       - "yourusername"
     labels:
@@ -22,12 +22,3 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "langchain-*"
         update-types: ["version-update:semver-major"]
-
-  # GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "github-actions"

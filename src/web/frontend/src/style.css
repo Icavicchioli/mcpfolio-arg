@@ -27,6 +27,12 @@
   --rose-dim:      rgba(244, 63, 94, 0.12);
   --amber:         #f59e0b;
 
+  /* Market Fluid neon palette */
+  --fluid-bull:      #00e5ff;
+  --fluid-bear:      #ff3060;
+  --fluid-bull-glow: rgba(0, 229, 255, 0.25);
+  --fluid-bear-glow: rgba(255, 48, 96, 0.22);
+
   /* Text */
   --text:          #e2e8f0;
   --text-muted:    #64748b;
@@ -58,7 +64,7 @@ body {
   background-color: var(--bg);
   background-image:
     radial-gradient(ellipse 60% 50% at 0% 0%,   rgba(124, 111, 247, 0.09) 0%, transparent 100%),
-    radial-gradient(ellipse 50% 50% at 100% 100%, rgba(16, 185, 129, 0.06) 0%, transparent 100%);
+    radial-gradient(ellipse 50% 50% at 100% 100%, rgba(0, 229, 255, 0.05) 0%, transparent 100%);
   color: var(--text);
   min-height: 100vh;
   overflow-x: hidden;
@@ -72,7 +78,7 @@ body::before {
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--accent) 0%, #60a5fa 50%, var(--emerald) 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, #00e5ff 40%, #60a5fa 70%, var(--emerald) 100%);
   z-index: 9999;
   pointer-events: none;
 }
@@ -1536,4 +1542,107 @@ footer {
 .chat-input-bar textarea:disabled { opacity: 0.5; }
 .chat-input-bar .icon-btn {
   flex-shrink: 0;
+}
+
+/* ── Market Lock Screen ─────────────────────────────────────────── */
+#market-lockscreen {
+  position: fixed; inset: 0; z-index: 10000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.6s var(--ease);
+}
+#market-lockscreen.hidden { display: none; }
+#market-lockscreen.fading-out { opacity: 0; pointer-events: none; }
+#lockscreen-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lockscreen-content {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 2rem;
+  text-align: center;
+  background: rgba(10, 17, 32, 0.75);
+  padding: 3rem 4rem;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.3);
+}
+.lockscreen-logo { display: flex; align-items: center; gap: 1rem; }
+.lockscreen-logo .logo-mark {
+  width: 44px;
+  height: 44px;
+  font-size: 14px;
+  border-radius: 12px;
+}
+.lockscreen-logo h1 {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--text);
+  text-shadow: 0 0 15px rgba(0,0,0,0.4);
+}
+.lockscreen-logo h1 span { color: var(--text-muted); }
+.lockscreen-status {
+  font-size: 0.95rem;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  min-height: 1.4em;
+  text-shadow: 0 0 8px rgba(0,0,0,0.5);
+}
+.lockscreen-enter {
+  margin-top: 1.5rem;
+  padding: 0.75rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  animation: pulse 2.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+  70% {
+    transform: scale(1.02);
+    box-shadow: 0 0 15px 5px var(--accent-glow);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+}
+
+/* ── Signal Badges ──────────────────────────────────────────────── */
+.signal-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.signal-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.18rem 0.55rem;
+  border-radius: 100px;
+  border: 1px solid;
+}
+
+.signal-badge.laminar {
+  color: var(--emerald);
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.signal-badge.vortex {
+  color: var(--amber);
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+  animation: vortexPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes vortexPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50%       { box-shadow: 0 0 6px 2px rgba(245, 158, 11, 0.3); }
 }

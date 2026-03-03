@@ -1,4 +1,5 @@
 import Chart from 'chart.js/auto';
+import { MarketFluid } from './fluid.js';
 
 // Initialize Icons (using global lucide from CDN)
 const {
@@ -21,12 +22,12 @@ const {
   Check,
   MessageSquare,
   ArrowUpCircle,
-  RotateCcw
+  RotateCcw,
 } = window.lucide;
 
 createIcons({
   icons: {
-    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check, MessageSquare, ArrowUpCircle, RotateCcw
+    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check, MessageSquare, ArrowUpCircle, RotateCcw,
   }
 });
 
@@ -72,6 +73,9 @@ const state = {
   marketData: {},     // Cache for lightweight price data
   currentNews: [],    // Full news cache — sliced on render
   thesis: [],         // Thesis history (populated after portfolio unlock)
+  // Lock screen fluid simulation
+  lockFluid: new MarketFluid(),
+  isLocked: true,
   // Advisor state
   advisorWS: null,
   advisorStreaming: false,
@@ -84,6 +88,8 @@ const state = {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   initCharts();
+  initLockScreen();
+
   checkStatus();
   fetchInitialData();
   fetchModels();
@@ -146,6 +152,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Lock screen button
+  document.getElementById('lock-screen-btn')?.addEventListener('click', lockScreen);
+
   // Poll status every 10s
   setInterval(checkStatus, 10000);
 });
@@ -192,6 +201,67 @@ async function fetchInitialData() {
     } catch (err) {
       console.error('Watchlist price refresh failed:', err);
     }
+  }
+
+}
+
+// --- Lock Screen ---
+async function initLockScreen() {
+  const lockEl   = document.getElementById('market-lockscreen');
+  const canvas   = document.getElementById('lockscreen-canvas');
+  const statusEl = document.getElementById('lockscreen-status');
+  const enterBtn = document.getElementById('lockscreen-enter-btn');
+  if (!lockEl || !canvas) return;
+
+  state.lockFluid.init(canvas, false);
+
+  await _refreshLockScreenData(statusEl);
+
+  enterBtn.classList.remove('hidden');
+  enterBtn.addEventListener('click', unlockScreen);
+  lockEl.addEventListener('click', (e) => {
+    if (e.target !== enterBtn && !enterBtn.classList.contains('hidden')) unlockScreen();
+  });
+}
+
+function unlockScreen() {
+  const lockEl = document.getElementById('market-lockscreen');
+  if (!lockEl || lockEl.classList.contains('fading-out')) return;
+  lockEl.classList.add('fading-out');
+  state.lockFluid.pause();
+  setTimeout(() => {
+    lockEl.classList.add('hidden');
+    lockEl.classList.remove('fading-out');
+    state.isLocked = false;
+  }, 650);
+}
+
+async function lockScreen() {
+  const lockEl   = document.getElementById('market-lockscreen');
+  const statusEl = document.getElementById('lockscreen-status');
+  if (!lockEl) return;
+  state.isLocked = true;
+  lockEl.classList.remove('hidden');
+  state.lockFluid.resume();
+  statusEl.textContent = 'Refreshing world markets...';
+  await _refreshLockScreenData(statusEl);
+}
+
+async function _refreshLockScreenData(statusEl) {
+  const data = await state.lockFluid.refreshWorldState();
+  if (data) {
+    const parts = [];
+    if (data.vix != null)
+      parts.push(`VIX ${data.vix.toFixed(1)}`);
+    if (data.overall_change_pct != null)
+      parts.push(`Global ${data.overall_change_pct >= 0 ? '+' : ''}${data.overall_change_pct.toFixed(2)}%`);
+    if (data.market_regime && data.market_regime !== 'Unknown')
+      parts.push(data.market_regime);
+    if (data.treasury_10y != null)
+      parts.push(`10Y ${data.treasury_10y.toFixed(2)}%`);
+    statusEl.textContent = parts.join(' · ') || 'World Markets';
+  } else {
+    statusEl.textContent = 'Market data unavailable';
   }
 }
 
@@ -1150,18 +1220,14 @@ function handleAdvisorEvent(event) {
       ensureAIBubble();
       const block = createThinkingBlock(event.tool, event.input);
       state.advisorCurrentMsgEl.querySelector('.msg-thinking-area').appendChild(block);
-      // Use tool_id for unique tracking (same tool can be called multiple times)
-      const toolKey = event.tool_id || event.tool;
-      state.advisorActiveBlocks[toolKey] = block;
+      state.advisorActiveBlocks[event.tool] = block;
       scrollChat();
       break;
 
     case 'tool_end':
-      // Match by tool_id (unique) instead of tool name
-      const endToolKey = event.tool_id || event.tool;
-      const b = state.advisorActiveBlocks[endToolKey];
+      const b = state.advisorActiveBlocks[event.tool];
       if (b) closeThinkingBlock(b);
-      delete state.advisorActiveBlocks[endToolKey];
+      delete state.advisorActiveBlocks[event.tool];
       break;
 
     case 'done':

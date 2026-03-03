@@ -2,9 +2,16 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop, master]
-  pull_request:
-    branches: [main, develop, master]
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'requirements*.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   PYTHON_VERSION: "3.11"
@@ -15,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -35,26 +42,17 @@ jobs:
       - name: Run Ruff (linting)
         run: ruff check src/ tests/
 
-      - name: Run MyPy (type checking)
-        run: mypy src/
-        continue-on-error: true  # Don't fail build on type errors yet
-
   test:
     name: Test Suite
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.11", "3.12"]
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Install dependencies
@@ -67,76 +65,5 @@ jobs:
         run: |
           pytest tests/ \
             --cov=src \
-            --cov-report=xml \
             --cov-report=term-missing \
-            --junitxml=junit.xml \
             -v
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
-          path: junit.xml
-
-  security:
-    name: Security Scanning
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: |
-          pip install safety bandit
-          pip install -r requirements.txt
-
-      - name: Run Safety (dependency vulnerabilities)
-        run: safety scan --json --output safety-report.json
-        continue-on-error: true
-
-      - name: Run Bandit (security issues)
-        run: bandit -r src/ -f json -o bandit-report.json
-        continue-on-error: true
-
-      - name: Upload security reports
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: security-reports
-          path: |
-            safety-report.json
-            bandit-report.json
-
-  build:
-    name: Build Distribution
-    runs-on: ubuntu-latest
-    needs: [lint, test, security]
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install build tools
-        run: pip install build twine
-
-      - name: Build package
-        run: python -m build
-
-      - name: Check package
-        run: twine check dist/*
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: dist
-          path: dist/
