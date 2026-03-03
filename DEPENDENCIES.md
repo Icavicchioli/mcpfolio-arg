@@ -6,14 +6,25 @@ This project uses modern Python packaging standards with pinned dependencies for
 
 ## Files
 
+- **`environment.yml`** - conda environment definition (Python 3.11, Node.js 22, all pip deps)
 - **`pyproject.toml`** - Modern Python project configuration (PEP 621)
-- **`requirements.txt`** - Production dependencies with exact versions
-- **`requirements-dev.txt`** - Development dependencies with exact versions
+- **`requirements.txt`** - Production pip dependencies with exact versions
+- **`requirements-dev.txt`** - Development pip dependencies with exact versions
 - **`.python-version`** - Python version specification (3.11.14)
 
 ## Installation
 
-### Production Environment
+### Recommended: conda environment (includes Node.js)
+
+```bash
+# Create the full environment from environment.yml
+conda env create -f environment.yml
+conda activate mcpfolio
+```
+
+This installs Python 3.11, Node.js 22 (with npm), and all pip dependencies in one step. The `start-dashboard.sh` script uses this env automatically via `conda run`.
+
+### Alternative: pip only (no Node.js)
 
 ```bash
 # Create virtual environment
@@ -27,6 +38,8 @@ pip install -r requirements.txt
 ### Development Environment
 
 ```bash
+conda activate mcpfolio
+
 # Install all development tools
 pip install -r requirements-dev.txt
 

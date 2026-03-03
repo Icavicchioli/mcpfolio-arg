@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.2.1] — Repository consistency and security fixes
+### Added
+- Added `# nosec` markers to intentional subprocess calls to satisfy Bandit
+- Standardized project version to `0.2.1` across all metadata files (`main.py`, `pyproject.toml`)
+### Changed
+- Updated CI pipeline to trigger on `master` branch
+- Modernized `safety` command in CI to use `safety scan`
+- Increased PBKDF2 iterations to 390,000 for better security alignment
+- Added final risk score clamping to ensure 0-100 range
+### Fixed
+- Fixed broken filename references in `docs/idea.md`
+- Synchronized `CLAUDE.md` architecture reference with full MCP toolset
+- Removed obsolete `config.toml` leftover from development
+
 ## [Unreleased]
 
 ### Added (Phase D — Advisor tab: AI financial chat with real-time streaming)

@@ -24,16 +24,23 @@ else
     echo -e "${GREEN}✅ Ollama is already running.${NC}"
 fi
 
-# 2. Start Backend (FastAPI)
-echo -e "${YELLOW}🔌 Starting Backend Server...${NC}"
+# 2. Build Frontend
+echo -e "${YELLOW}🏗️  Building Frontend...${NC}"
 cd "$(dirname "$0")/.."
+FRONTEND_DIR="src/web/frontend"
+conda run -n ${CONDA_ENV} npm --prefix ${FRONTEND_DIR} install >/dev/null 2>&1
+conda run -n ${CONDA_ENV} npm --prefix ${FRONTEND_DIR} run build >/dev/null 2>&1
+echo -e "${GREEN}✅ Frontend built.${NC}"
+
+# 3. Start Backend (FastAPI)
+echo -e "${YELLOW}🔌 Starting Backend Server...${NC}"
 # Kill existing uvicorn process on this port if any
 pkill -f "uvicorn src.web.main:app" >/dev/null 2>&1
 
 conda run -n ${CONDA_ENV} python -m uvicorn src.web.main:app --host 127.0.0.1 --port ${PORT} >/dev/null 2>&1 &
 BACKEND_PID=$!
 
-# 3. Wait for Health Check
+# 4. Wait for Health Check
 echo -e "${YELLOW}⏳ Waiting for health check...${NC}"
 MAX_RETRIES=30
 RETRY_COUNT=0
@@ -51,7 +58,7 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     exit 1
 fi
 
-# 4. Open Browser
+# 5. Open Browser
 URL="http://127.0.0.1:${PORT}"
 echo -e "${GREEN}🌐 Opening Dashboard at ${URL}${NC}"
 open "${URL}" || xdg-open "${URL}" || echo -e "Please open ${URL} in your browser."

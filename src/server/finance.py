@@ -52,6 +52,21 @@ def _get_trend_data_logic(ticker: str, period: str = "1mo") -> dict:
                 }
             )
 
+        # Pre-compute summary stats so the LLM can read them directly
+        # without processing the full points array
+        prices = [p["price"] for p in points]
+        pct_change = round((prices[-1] - prices[0]) / prices[0] * 100, 2) if prices[0] else 0
+        summary = {
+            "start_date": points[0]["date"],
+            "start_price": prices[0],
+            "end_date": points[-1]["date"],
+            "end_price": prices[-1],
+            "pct_change": pct_change,
+            "trend": "upward" if pct_change > 2 else "downward" if pct_change < -2 else "flat",
+            "period_high": max(prices),
+            "period_low": min(prices),
+        }
+
         duration_ms = (time.time() - start_time) * 1000
         logger.info(
             "get_trend_data_success",
@@ -60,7 +75,13 @@ def _get_trend_data_logic(ticker: str, period: str = "1mo") -> dict:
             duration_ms=round(duration_ms, 2),
         )
 
-        return {"ticker": ticker, "period": period, "points": points, "count": len(points)}
+        return {
+            "ticker": ticker,
+            "period": period,
+            "summary": summary,
+            "points": points,
+            "count": len(points),
+        }
     except Exception as e:
         logger.error("get_trend_data_failed", ticker=ticker, error=str(e), exc_info=True)
         return {"error": str(e), "ticker": ticker, "error_type": "unknown"}
