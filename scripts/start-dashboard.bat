@@ -1,0 +1,72 @@
+@echo off
+setlocal enabledelayedexpansion
+
+:: Configuration
+if "%PORT%"=="" set PORT=8000
+set CONDA_ENV=mcpfolio
+
+echo ========================================
+echo       MCPFolio Dashboard Startup
+echo ========================================
+
+:: 1. Check Ollama
+echo Checking Ollama status...
+ollama list >nul 2>&1
+if errorlevel 1 (
+    echo Starting Ollama serve...
+    start /b "" ollama serve >nul 2>&1
+    timeout /t 5 /nobreak >nul
+) else (
+    echo Ollama is already running.
+)
+
+:: 2. Build Frontend
+echo Building Frontend...
+cd /d "%~dp0.."
+set FRONTEND_DIR=src\web\frontend
+conda run -n %CONDA_ENV% npm --prefix %FRONTEND_DIR% install >nul 2>&1
+conda run -n %CONDA_ENV% npm --prefix %FRONTEND_DIR% run build >nul 2>&1
+echo Frontend built.
+
+:: 3. Start Backend (FastAPI)
+echo Starting Backend Server...
+:: Kill existing uvicorn process if any
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+
+start /b "" conda run -n %CONDA_ENV% python -m uvicorn src.web.main:app --host 127.0.0.1 --port %PORT%
+
+:: 4. Wait for Health Check
+echo Waiting for health check...
+set RETRY_COUNT=0
+set MAX_RETRIES=30
+:healthloop
+if %RETRY_COUNT% geq %MAX_RETRIES% goto healthfail
+curl -s http://127.0.0.1:%PORT%/api/health | findstr /c:"healthy" >nul 2>&1
+if %errorlevel%==0 (
+    echo Backend is healthy!
+    goto healthpass
+)
+set /a RETRY_COUNT+=1
+timeout /t 1 /nobreak >nul
+goto healthloop
+
+:healthfail
+echo Backend failed to start or is unhealthy.
+exit /b 1
+
+:healthpass
+
+:: 5. Open Browser
+set URL=http://127.0.0.1:%PORT%
+echo Opening Dashboard at %URL%
+start "" "%URL%"
+
+echo ----------------------------------------
+echo Platform is ready!
+echo Press Ctrl+C to stop the servers.
+echo ----------------------------------------
+
+:: Keep script running
+pause >nul
