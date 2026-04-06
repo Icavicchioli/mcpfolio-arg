@@ -1,8 +1,12 @@
 # Improvements folder (internal planning)
 .improvements/
 
-# Security scan reports
+# Security and license scan reports (contain local system paths)
 bandit_full_report.txt
+scan.json
+scan_results.json
+scan_results.html
+filelist.txt
 
 # Python
 __pycache__/

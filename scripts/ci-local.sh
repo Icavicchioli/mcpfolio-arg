@@ -36,8 +36,20 @@ error() {
 # Check if conda environment is activated
 if [[ -z "${CONDA_DEFAULT_ENV}" ]] || [[ "${CONDA_DEFAULT_ENV}" != "mcpfolio" ]]; then
     echo -e "${YELLOW}Activating conda environment: mcpfolio${NC}"
-    source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate mcpfolio || error "Failed to activate conda environment"
+    # Find conda init script from common install locations or CONDA_EXE
+    if [[ -n "${CONDA_EXE}" ]]; then
+        CONDA_BASE="$(dirname "$(dirname "$CONDA_EXE")")"
+    elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+        CONDA_BASE="$HOME/miniconda3"
+    elif [[ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]]; then
+        CONDA_BASE="$HOME/anaconda3"
+    elif [[ -f "$HOME/opt/miniconda3/etc/profile.d/conda.sh" ]]; then
+        CONDA_BASE="$HOME/opt/miniconda3"
+    else
+        error "Conda not found. Install Miniconda or Anaconda, or run: conda activate mcpfolio"
+    fi
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+    conda activate mcpfolio || error "Failed to activate conda environment 'mcpfolio'"
 fi
 
 # Step 1: Pre-commit hooks

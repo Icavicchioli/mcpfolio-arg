@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Adam Karp
 """LangGraph edge definitions for routing decisions."""
 
 from langchain_core.messages import AIMessage

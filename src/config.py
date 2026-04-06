@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Adam Karp
 """Application configuration with environment variable support using Pydantic Settings."""
 
 from pathlib import Path

@@ -1,6 +1,7 @@
 {
   "name": "frontend",
   "private": true,
+  "license": "BSD-3-Clause",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
