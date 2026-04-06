@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Adam Karp
 """
 FastAPI web application for MCPFolio.
 
@@ -715,7 +717,12 @@ async def shutdown_all():
         from contextlib import suppress
 
         with suppress(Exception):
-            subprocess.run(["pkill", "-f", "ollama serve"], check=False)  # nosec
+            import platform
+
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill", "/F", "/IM", "ollama.exe"], check=False)  # nosec
+            else:
+                subprocess.run(["pkill", "-f", "ollama serve"], check=False)  # nosec
 
         import os
 

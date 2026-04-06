@@ -2,7 +2,7 @@
 
 MCPFolio was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev), and **vibe-coded contributions are explicitly welcome**. If you built something by pair-programming with an AI, ran it, and it worked — open a PR. The bar is working code, not a particular development process.
 
-This document covers getting a local environment running, code conventions, and how to submit changes. There is no CLA and no copyright assignment — the project is public domain.
+This document covers getting a local environment running, code conventions, and how to submit changes. There is no CLA. By contributing, you agree that your contributions are licensed under the [BSD 3-Clause License](LICENSE).
 
 ---
 

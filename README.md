@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/adkarp/mcpfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/adkarp/mcpfolio/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
-[![License: Public Domain](https://img.shields.io/badge/license-Public%20Domain-brightgreen)](#license)
+[![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue)](#license)
 
 > **Vibe-coded** in collaboration with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev). Vibe-coded PRs are welcome — see [Contributing](#contributing).
 
@@ -340,9 +340,7 @@ mcpfolio/
 
 ### This project
 
-MCPFolio is released into the **public domain**. You may use, copy, modify, and distribute this software for any purpose, without restriction and without attribution requirement.
-
-Where public domain dedication is not legally recognized, the project is licensed under the [Creative Commons Zero v1.0 Universal (CC0-1.0)](https://creativecommons.org/publicdomain/zero/1.0/) license.
+MCPFolio is released under the **[BSD 3-Clause License](LICENSE)**. You are free to use, copy, modify, and distribute this software in source and binary forms, with or without modification, provided the copyright notice, conditions, and disclaimer are retained. You may not use the name of the copyright holder or contributors to endorse derived products without written permission.
 
 ### Third-party dependencies
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Adam Karp
 """MCP Financial Server - Provides market data tools via stdio transport."""
 
 import sys

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Adam Karp
 """Advisor graph factory and system prompt for the web chatbot tab."""
 
 from __future__ import annotations

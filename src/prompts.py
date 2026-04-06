@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Adam Karp
 """Prompts for the MCPFolio Financial Analyst."""
 
 import re
