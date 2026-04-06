@@ -4,7 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue)](#license)
 
-> **Vibe-coded** in collaboration with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev). Vibe-coded PRs are welcome — see [Contributing](#contributing).
+> **Vibe-coded** in collaboration with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.google/). Vibe-coded PRs are welcome — see [Contributing](#contributing).
 
 **A local-first, privacy-preserving financial analyst powered by a local LLM.**
 
@@ -374,7 +374,7 @@ All direct dependencies and their licenses are listed in `requirements.txt`. The
 
 ## Contributing
 
-MCPFolio was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.dev) from the ground up. That's not a footnote — it's the intended workflow, and **vibe-coded pull requests are explicitly welcome**.
+MCPFolio was vibe-coded with [Claude Code](https://claude.ai/code) + [Antigravity](https://antigravity.google/) from the ground up. That's not a footnote — it's the intended workflow, and **vibe-coded pull requests are explicitly welcome**.
 
 If you built something cool by prompting an AI pair programmer, opened a terminal, and things worked, that counts. The only bar is that the code works and doesn't break existing behavior. See [CONTRIBUTING.md](CONTRIBUTING.md) for the mechanics.
 
