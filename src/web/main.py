@@ -124,6 +124,28 @@ class PortfolioItem(BaseModel):
         return currency
 
 
+class PortfolioImportRequest(BaseModel):
+    """Validated additive import of holdings parsed from a local CSV."""
+
+    holdings: list[PortfolioItem] = Field(..., min_length=1, max_length=500)
+
+
+class AddPortfolioUnitsRequest(BaseModel):
+    """Incremental purchase expressed in the holding's existing cost currency."""
+
+    quantity: float = Field(..., gt=0)
+    cost_basis: float = Field(..., gt=0)
+    cost_currency: str
+
+    @field_validator("cost_currency")
+    @classmethod
+    def validate_cost_currency(cls, value: str) -> str:
+        currency = normalize_currency(value)
+        if currency is None:
+            raise ValueError("cost_currency must be a three-letter currency code")
+        return currency
+
+
 class HealthResponse(BaseModel):
     """Health check response"""
 
@@ -781,7 +803,12 @@ async def get_portfolio_prices(request: dict):
         positions = []
         tickers = [str(t).strip().upper() for t in request.get("tickers", []) if t]
     if not tickers:
-        return {"prices": {}, "quotes": {}}
+        return {
+            "prices": {},
+            "quotes": {},
+            "totals": aggregate_position_metrics([]),
+            "fx": None,
+        }
 
     from src.tools.lazy_loader import get_mcp_tools
 
@@ -794,7 +821,6 @@ async def get_portfolio_prices(request: dict):
 
     results = {}
     quote_results = {}
-    valuation_results = []
     positions_by_ticker = {str(p["ticker"]).strip().upper(): p for p in positions}
     # Process in parallel
     tasks = [market_tool.ainvoke({"ticker": t}) for t in tickers]
@@ -809,26 +835,73 @@ async def get_portfolio_prices(request: dict):
         if data and data.get("current_price"):
             normalized_ticker = ticker.upper()
             results[normalized_ticker] = data.get("current_price")
-            position = positions_by_ticker.get(normalized_ticker)
-            if position and position.get("quantity") is not None and position.get("cost_basis") is not None:
-                data["position_metrics"] = calculate_position_metrics(
-                    quantity=position["quantity"],
-                    cost_basis=position["cost_basis"],
-                    cost_currency=position.get("cost_currency", "USD"),
-                    quote=data,
-                    asset_type=position.get("asset_type", "equity"),
-                    underlying_ticker=position.get("underlying_ticker"),
-                    cedears_per_underlying=position.get("cedears_per_underlying"),
-                    ratio_as_of=position.get("ratio_as_of"),
-                )
-                valuation_results.append(data["position_metrics"])
             quote_results[normalized_ticker] = data
+
+    ccl_needed = any(
+        (quote := quote_results.get(ticker))
+        and (position := positions_by_ticker.get(ticker))
+        and normalize_currency(quote.get("currency"))
+        and normalize_currency(position.get("cost_currency", "USD"))
+        and normalize_currency(quote.get("currency"))
+        != normalize_currency(position.get("cost_currency", "USD"))
+        and {normalize_currency(quote.get("currency")), normalize_currency(position.get("cost_currency", "USD"))}
+        == {"ARS", "USD"}
+        for ticker in quote_results
+    )
+    fx_quote = None
+    if ccl_needed:
+        from src.market.fx import get_ccl_quote
+
+        try:
+            fx_quote = await get_ccl_quote()
+        except Exception as error:
+            logger.warning("ccl_quote_unavailable", error=str(error))
+            fx_quote = {
+                "source": "DolarAPI (Contado con liquidacion)",
+                "quote_status": "unknown",
+                "error": "CCL quote unavailable",
+            }
+
+    valuation_results = []
+    for ticker, position in positions_by_ticker.items():
+        quote = quote_results.get(ticker)
+        if (
+            quote
+            and position.get("quantity") is not None
+            and position.get("cost_basis") is not None
+        ):
+            position_metrics = calculate_position_metrics(
+                quantity=position["quantity"],
+                cost_basis=position["cost_basis"],
+                cost_currency=position.get("cost_currency", "USD"),
+                quote=quote,
+                asset_type=position.get("asset_type", "equity"),
+                underlying_ticker=position.get("underlying_ticker"),
+                cedears_per_underlying=position.get("cedears_per_underlying"),
+                ratio_as_of=position.get("ratio_as_of"),
+                fx_quote=fx_quote,
+            )
+            quote["position_metrics"] = position_metrics
+            valuation_results.append(position_metrics)
 
     return {
         "prices": results,
         "quotes": quote_results,
         "totals": aggregate_position_metrics(valuation_results),
+        "fx": fx_quote,
     }
+
+
+@app.get("/api/fx/ccl")
+async def get_ccl_rate():
+    """Return the dated CCL midpoint used for explicit ARS/USD valuation."""
+    from src.market.fx import get_ccl_quote
+
+    try:
+        return await get_ccl_quote()
+    except Exception as error:
+        logger.warning("ccl_quote_unavailable", error=str(error))
+        raise HTTPException(status_code=502, detail="CCL quote unavailable")
 
 
 @app.post("/api/admin/shutdown")
@@ -1226,6 +1299,71 @@ async def add_portfolio_item(item: PortfolioItem):
     holdings.append(item)
     session.portfolio_manager.save(holdings)
     return {"status": "saved", "ticker": item.ticker}
+
+
+@app.post("/api/portfolio/{ticker}/add-units")
+async def add_units_to_portfolio_item(ticker: str, purchase: AddPortfolioUnitsRequest):
+    """Increase a position and calculate its weighted-average unit cost."""
+    if not session.portfolio_manager.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+
+    normalized_ticker = ticker.strip().upper()
+    holdings = session.portfolio_manager.load()
+    holding = next((item for item in holdings if item.ticker.upper() == normalized_ticker), None)
+    if holding is None:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    if purchase.cost_currency != holding.cost_currency:
+        raise HTTPException(
+            status_code=422,
+            detail="Incremental purchase must use the holding's cost currency",
+        )
+
+    quantity = holding.quantity + purchase.quantity
+    weighted_cost = (
+        holding.quantity * holding.cost_basis + purchase.quantity * purchase.cost_basis
+    ) / quantity
+    updated_holding = holding.model_copy(
+        update={"quantity": quantity, "cost_basis": weighted_cost}
+    )
+    updated_holdings = [
+        updated_holding if item.ticker.upper() == normalized_ticker else item
+        for item in holdings
+    ]
+    session.portfolio_manager.save(updated_holdings)
+    return {
+        "status": "updated",
+        "holding": updated_holding,
+        "added_quantity": purchase.quantity,
+        "weighted_average_cost": weighted_cost,
+        "cost_currency": holding.cost_currency,
+    }
+
+
+@app.post("/api/portfolio/import")
+async def import_portfolio(request: PortfolioImportRequest):
+    """Merge imported holdings by ticker and persist all changes in one write."""
+    if not session.portfolio_manager.is_unlocked():
+        raise HTTPException(status_code=401, detail="Portfolio locked")
+
+    normalized_tickers = [item.ticker.strip().upper() for item in request.holdings]
+    if len(normalized_tickers) != len(set(normalized_tickers)):
+        raise HTTPException(status_code=422, detail="CSV contains duplicate tickers")
+
+    holdings_by_ticker = {
+        item.ticker.upper(): item for item in session.portfolio_manager.load()
+    }
+    added = 0
+    updated = 0
+    for item, ticker in zip(request.holdings, normalized_tickers, strict=True):
+        if ticker in holdings_by_ticker:
+            updated += 1
+        else:
+            added += 1
+        holdings_by_ticker[ticker] = item.model_copy(update={"ticker": ticker})
+
+    session.portfolio_manager.save(list(holdings_by_ticker.values()))
+    logger.info("portfolio_csv_imported", added=added, updated=updated)
+    return {"status": "imported", "added": added, "updated": updated}
 
 
 @app.delete("/api/portfolio/{ticker}")

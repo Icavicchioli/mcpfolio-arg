@@ -431,6 +431,23 @@ Adds or replaces a holding. If the ticker already exists, it is replaced.
 
 ---
 
+### `POST /api/portfolio/{ticker}/add-units`
+
+Adds units to an existing position and recalculates weighted-average cost. `quantity` and `cost_basis` describe the new purchase; `cost_currency` must match the holding's saved cost currency. The route persists once and preserves the holding's original metadata and added date.
+
+**Request body**
+```json
+{"quantity": 34, "cost_basis": 12.50, "cost_currency": "USD"}
+```
+
+**Response** includes the updated holding, added quantity, weighted average and cost currency. Returns `401` when locked, `404` when the ticker is absent, and `422` if currencies differ.
+
+### `POST /api/portfolio/import`
+
+Imports 1–500 validated `PortfolioItem` records after the user confirms a CSV preview. It merges by ticker, updating matching entries and retaining all other holdings. Duplicate tickers in one request are rejected. The portfolio must be unlocked; all records are validated before one encrypted save.
+
+The browser parses CSV locally. Required columns are `ticker`, `quantity`, and `cost_basis`; optional columns are `cost_currency`, `asset_type`, `underlying_ticker`, `cedears_per_underlying`, `ratio_source`, and `ratio_as_of`. No file is uploaded to the API.
+
 ### `DELETE /api/portfolio/{ticker}`
 
 Removes a holding by ticker.
@@ -487,12 +504,18 @@ For quote metadata and per-position valuation, send full positions:
 
 Tickers that fail to fetch (rate limit, invalid symbol) are omitted from the response without erroring the whole request. Detailed quotes include currency, exchange, source, timestamp and freshness; enriched positions include market value, cost/P&L comparability and underlying-equivalent quantity.
 
-Totals are grouped by currency. P/L is `null` if the cost currency differs from the quote currency or the quote is missing; no FX rate is inferred. Equivalent underlying quantity is `quantity / cedears_per_underlying`, and is unavailable if the ratio or underlying is missing. Ratio statuses are `missing`, `invalid`, `user_provided_unverified`, or `stale_unverified`; no status claims independent verification. Quote statuses are `fresh`, `stale`, or `unknown` (older than seven days is stale).
+Totals are grouped by currency. P/L is `null` if the quote is missing or currencies differ without a fresh supported CCL quote. Equivalent underlying quantity is `quantity / cedears_per_underlying`, and is unavailable if the ratio or underlying is missing. Ratio statuses are `missing`, `invalid`, `user_provided_unverified`, or `stale_unverified`; no status claims independent verification. Quote statuses are `fresh`, `stale`, or `unknown` (older than seven days is stale).
+
+When positions cross ARS/USD and a fresh CCL quote is available, P/L is calculated in the cost currency using the CCL buy/sell midpoint. The local market value remains in its quote currency, and each converted position includes the dated CCL quote. If the CCL feed is unavailable or more than one day old, P/L remains `null`.
 
 **Errors**
 - `500` — market data tool unavailable
 
 ---
+
+### `GET /api/fx/ccl`
+
+Returns the dated CCL quote from DolarAPI. `ars_per_usd` is the midpoint of `compra` and `venta`; the response also includes source, market and timestamp. The response is cached for five minutes. It is an indicative reference, not a broker settlement rate.
 
 ### `POST /api/portfolio/wipe`
 

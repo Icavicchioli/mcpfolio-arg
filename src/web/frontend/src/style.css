@@ -1063,6 +1063,7 @@ main.no-sidebar {
 
 .portfolio-header-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
   align-items: center;
   flex-shrink: 0;
@@ -1120,6 +1121,58 @@ main.no-sidebar {
 
 .portfolio-ticker:hover {
   color: #fff;
+}
+
+.portfolio-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.csv-preview-content {
+  width: min(900px, 94vw);
+  max-width: 94vw;
+}
+
+@media (max-width: 700px) {
+  .portfolio-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .portfolio-row-actions .icon-btn {
+    min-width: 2rem;
+    min-height: 2rem;
+  }
+}
+
+.csv-preview-table-wrap {
+  max-height: 42vh;
+  overflow: auto;
+  margin: 1rem 0;
+}
+
+.csv-preview-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.csv-preview-table-wrap th,
+.csv-preview-table-wrap td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--glass-border);
+  text-align: left;
+}
+
+.csv-row-error {
+  color: var(--danger, #ef4444);
+}
+
+.csv-import-errors {
+  color: var(--danger, #ef4444);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 /* Pie chart card */

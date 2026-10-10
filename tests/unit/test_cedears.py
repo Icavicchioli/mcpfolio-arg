@@ -63,6 +63,40 @@ def test_currency_mismatch_does_not_calculate_pnl_or_convert_value():
     assert result["valuation_status"] == "currency_mismatch"
 
 
+def test_currency_mismatch_uses_only_explicit_fresh_ccl_for_pnl():
+    fx_quote = {
+        "ars_per_usd": 1606.05,
+        "quote_status": "fresh",
+        "quote_as_of": "2026-10-10T20:57:00Z",
+        "source": "DolarAPI CCL",
+    }
+    result = calculate_position_metrics(
+        quantity=66,
+        cost_basis=11.75,
+        cost_currency="USD",
+        quote={"current_price": 20970, "currency": "ARS"},
+        asset_type="cedear",
+        underlying_ticker="SPY",
+        fx_quote=fx_quote,
+    )
+    stale = calculate_position_metrics(
+        quantity=66,
+        cost_basis=11.75,
+        cost_currency="USD",
+        quote={"current_price": 20970, "currency": "ARS"},
+        fx_quote={**fx_quote, "quote_status": "stale"},
+    )
+
+    assert result["market_value"] == 1_384_020
+    assert result["market_value_currency"] == "ARS"
+    assert result["pnl_currency"] == "USD"
+    assert result["valuation_status"] == "comparable_via_ccl"
+    assert result["pnl"] == (1_384_020 / 1606.05) - 66 * 11.75
+    assert result["fx_quote"]["source"] == "DolarAPI CCL"
+    assert stale["pnl"] is None
+    assert stale["fx_conversion_status"] == "stale_ccl"
+
+
 def test_portfolio_totals_are_grouped_by_currency():
     ars = calculate_position_metrics(
         quantity=10,

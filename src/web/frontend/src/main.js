@@ -1,4 +1,5 @@
 import Chart from 'chart.js/auto';
+import Papa from 'papaparse';
 import { MarketFluid } from './fluid.js';
 
 // Initialize Icons (using global lucide from CDN)
@@ -23,11 +24,13 @@ const {
   MessageSquare,
   ArrowUpCircle,
   RotateCcw,
+  Upload,
+  Pencil,
 } = window.lucide;
 
 createIcons({
   icons: {
-    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check, MessageSquare, ArrowUpCircle, RotateCcw,
+    Search, Brain, Newspaper, Bookmark, BookmarkPlus, Activity, Power, Plus, PlusCircle, Trash2, Briefcase, LayoutDashboard, Lock, ShieldLock, PieChart, Check, MessageSquare, ArrowUpCircle, RotateCcw, Upload, Pencil,
   }
 });
 
@@ -73,6 +76,11 @@ const state = {
   marketData: {},     // Cache for lightweight price data
   currentNews: [],    // Full news cache — sliced on render
   thesis: [],         // Thesis history (populated after portfolio unlock)
+  fxQuote: null,
+  portfolioTotals: null,
+  csvPreview: [],
+  editingTicker: null,
+  addingUnitsTicker: null,
   // Lock screen fluid simulation
   lockFluid: new MarketFluid(),
   isLocked: true,
@@ -109,6 +117,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('model-select').addEventListener('change', handleModelChange);
   document.getElementById('add-watchlist-btn').addEventListener('click', handleAddToWatchlist);
   document.getElementById('add-new-holding-btn').addEventListener('click', () => openPortfolioModal());
+  document.getElementById('import-portfolio-csv-btn').addEventListener('click', () => document.getElementById('portfolio-csv-input').click());
+  document.getElementById('portfolio-csv-input').addEventListener('change', handlePortfolioCsvSelected);
+  document.getElementById('confirm-csv-import-btn').addEventListener('click', importPortfolioCsv);
+  document.getElementById('cancel-csv-import-btn').addEventListener('click', closePortfolioCsvPreview);
+  document.getElementById('download-portfolio-csv-template').addEventListener('click', downloadPortfolioCsvTemplate);
+  document.getElementById('add-units-form').addEventListener('submit', handleAddUnits);
+  document.getElementById('cancel-add-units-btn').addEventListener('click', closeAddUnitsModal);
+  document.getElementById('added-qty').addEventListener('input', calculateAddedUnits);
+  document.getElementById('added-cost').addEventListener('input', calculateAddedUnits);
   document.getElementById('show-unlock-btn').addEventListener('click', () => document.getElementById('unlock-modal').classList.remove('hidden'));
 
   // Portfolio Security
@@ -747,6 +764,8 @@ async function fetchPortfolioPrices() {
       Object.entries(data.quotes || {}).forEach(([ticker, quote]) => {
         state.marketData[ticker] = quote;
       });
+      state.fxQuote = data.fx || null;
+      state.portfolioTotals = data.totals || null;
     }
   } catch (err) {
     console.error('Failed to batch fetch prices:', err);
@@ -788,9 +807,7 @@ function renderPortfolio() {
   }
 
   const marketValueByCurrency = {};
-  const pnlByCurrency = {};
-  const comparableCostByCurrency = {};
-  let pnlUnavailableCount = 0;
+  let pnlUnavailableCount = state.portfolioTotals?.not_comparable_positions ?? 0;
 
   const rows = state.portfolio.map(item => {
     const quote = state.marketData[item.ticker] || {};
@@ -798,23 +815,16 @@ function renderPortfolio() {
       ? Number(quote.current_price)
       : null;
     const quoteCurrency = quote.currency || null;
-    const costCurrency = item.cost_currency || 'USD';
     const marketValue = currentPrice === null ? null : item.quantity * currentPrice;
-    const costValue = item.quantity * item.cost_basis;
-    const comparable = marketValue !== null && quoteCurrency && quoteCurrency === costCurrency;
-    const pnl = comparable ? marketValue - costValue : null;
-    const pnlPercent = comparable && costValue > 0 ? (pnl / costValue) * 100 : null;
+    const costCurrency = item.cost_currency || 'USD';
+    const metrics = quote.position_metrics || {};
+    const pnl = typeof metrics.pnl === 'number' ? metrics.pnl : null;
+    const pnlCurrency = metrics.pnl_currency || null;
+    const pnlPercent = typeof metrics.pnl_percent === 'number' ? metrics.pnl_percent : null;
 
     if (marketValue !== null && quoteCurrency) {
       marketValueByCurrency[quoteCurrency] = (marketValueByCurrency[quoteCurrency] || 0) + marketValue;
     }
-    if (comparable) {
-      pnlByCurrency[quoteCurrency] = (pnlByCurrency[quoteCurrency] || 0) + pnl;
-      comparableCostByCurrency[quoteCurrency] = (comparableCostByCurrency[quoteCurrency] || 0) + costValue;
-    } else {
-      pnlUnavailableCount += 1;
-    }
-
     const plClass = pnl === null ? 'neutral' : pnl >= 0 ? 'plus' : 'minus';
     const plSign = pnl !== null && pnl >= 0 ? '+' : '';
     const unitLabel = item.asset_type === 'cedear' ? 'CEDEARs' : 'shares';
@@ -824,9 +834,15 @@ function renderPortfolio() {
         : `${formatNumber(quote.position_metrics.underlying_equivalent_quantity, false)} ${escapeHtml(item.underlying_ticker || 'underlying')} shares · ratio ${item.cedears_per_underlying} (${escapeHtml(quote.position_metrics.ratio_status)}; source ${escapeHtml(item.ratio_source || 'not provided')}; as of ${escapeHtml(item.ratio_as_of || 'unknown')})`)
       : '';
     const quoteStamp = `${escapeHtml(quote.quote_status || 'unknown')} · ${escapeHtml(quote.quote_as_of || 'date unknown')}`;
+    const fxQuote = metrics.fx_quote;
+    const fxNote = fxQuote
+      ? `CCL ${formatNumber(fxQuote.ars_per_usd)} ARS/USD · ${escapeHtml(fxQuote.quote_as_of || 'date unknown')} · ${escapeHtml(fxQuote.source || 'source unknown')}`
+      : metrics.fx_conversion_status && metrics.fx_conversion_status !== 'not_required'
+        ? `CCL ${escapeHtml(metrics.fx_conversion_status)}`
+        : '';
     const pnlDisplay = pnl === null
       ? `Unavailable<br><span class="portfolio-quote-note">${marketValue === null ? 'No quote' : `Cost ${escapeHtml(costCurrency)} · quote ${escapeHtml(quoteCurrency || 'currency unknown')}`}</span>`
-      : `${plSign}${formatCurrencyAmount(Math.abs(pnl), quoteCurrency)}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${pnlPercent.toFixed(2)}%</span>`;
+      : `${plSign}${formatCurrencyAmount(Math.abs(pnl), pnlCurrency)}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${pnlPercent === null ? '' : `${pnlPercent.toFixed(2)}%`}</span>${fxNote ? `<br><span class="portfolio-quote-note">${fxNote}</span>` : ''}`;
 
     return `
       <tr>
@@ -836,11 +852,17 @@ function renderPortfolio() {
         <td>${formatCurrencyAmount(currentPrice, quoteCurrency)}<br><span class="portfolio-quote-note">${quoteStamp}</span></td>
         <td>${formatCurrencyAmount(marketValue, quoteCurrency)}</td>
         <td class="${plClass}">${pnlDisplay}</td>
-        <td>
+        <td><div class="portfolio-row-actions">
+          <button class="icon-btn small" data-add-units-ticker="${escapeHtml(item.ticker)}" title="Add units">
+            <i data-lucide="plus"></i>
+          </button>
+          <button class="icon-btn small" data-edit-ticker="${escapeHtml(item.ticker)}" title="Edit position">
+            <i data-lucide="pencil"></i>
+          </button>
           <button class="icon-btn small danger-icon" data-remove-ticker="${escapeHtml(item.ticker)}" title="Remove">
             <i data-lucide="trash-2"></i>
           </button>
-        </td>
+        </div></td>
       </tr>
     `;
   });
@@ -853,15 +875,21 @@ function renderPortfolio() {
   body.querySelectorAll('[data-remove-ticker]').forEach(element => {
     element.addEventListener('click', () => window.handleRemoveHolding(element.dataset.removeTicker));
   });
+  body.querySelectorAll('[data-edit-ticker]').forEach(element => {
+    element.addEventListener('click', () => openPortfolioModal(element.dataset.editTicker));
+  });
+  body.querySelectorAll('[data-add-units-ticker]').forEach(element => {
+    element.addEventListener('click', () => openAddUnitsModal(element.dataset.addUnitsTicker));
+  });
 
   document.getElementById('total-value').textContent = groupedCurrencyTotals(marketValueByCurrency) || 'No current quotes';
   const plEl = document.getElementById('total-pl');
+  const pnlByCurrency = state.portfolioTotals?.pnl_by_currency || {};
+  const pnlPercentByCurrency = state.portfolioTotals?.pnl_percent_by_currency || {};
   const pnlSummary = Object.entries(pnlByCurrency)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([currency, value]) => {
-      const percent = comparableCostByCurrency[currency] > 0
-        ? value / comparableCostByCurrency[currency] * 100
-        : null;
+      const percent = pnlPercentByCurrency[currency];
       const sign = value >= 0 ? '+' : '';
       return `${escapeHtml(currency)} ${sign}${formatNumber(value)}${percent === null ? '' : ` (${sign}${percent.toFixed(2)}%)`}`;
     })
@@ -869,11 +897,15 @@ function renderPortfolio() {
   plEl.textContent = `${pnlSummary || 'Unavailable'}${pnlUnavailableCount ? ` · ${pnlUnavailableCount} position(s) not comparable` : ''}`;
   const comparablePnls = Object.values(pnlByCurrency);
   plEl.className = comparablePnls.length === 0 ? 'neutral' : comparablePnls.every(value => value >= 0) ? 'plus' : 'minus';
+  const usedCcl = state.portfolio.some(item => state.marketData[item.ticker]?.position_metrics?.fx_conversion_status === 'current_ccl');
+  if (usedCcl && state.fxQuote?.ars_per_usd) {
+    plEl.textContent += ` · CCL ${formatNumber(state.fxQuote.ars_per_usd)} ARS/USD (${escapeHtml(state.fxQuote.quote_as_of || 'date unknown')} · ${escapeHtml(state.fxQuote.source || 'source unknown')})`;
+  }
 
   // Render per-holding breakdown sidebar
   renderPortfolioBreakdown();
 
-  createIcons({ icons: { Trash2 } });
+  createIcons({ icons: { Trash2, Plus, Pencil } });
 }
 
 function renderPortfolioBreakdown() {
@@ -886,9 +918,10 @@ function renderPortfolioBreakdown() {
       ? Number(quote.current_price)
       : null;
     const quoteCurrency = quote.currency || null;
-    const costCurrency = item.cost_currency || 'USD';
-    const comparable = currentPrice !== null && quoteCurrency === costCurrency;
-    const pnl = comparable ? item.quantity * (currentPrice - item.cost_basis) : null;
+    const metrics = quote.position_metrics || {};
+    const pnl = typeof metrics.pnl === 'number' ? metrics.pnl : null;
+    const pnlCurrency = metrics.pnl_currency || null;
+    const pnlPercent = metrics.pnl_percent;
     const plClass = pnl === null ? 'neutral' : pnl >= 0 ? 'plus' : 'minus';
     const plSign = pnl !== null && pnl >= 0 ? '+' : '';
     const unitLabel = item.asset_type === 'cedear' ? 'CEDEARs' : 'shares';
@@ -898,7 +931,7 @@ function renderPortfolioBreakdown() {
         <div class="breakdown-ticker">${escapeHtml(item.ticker)}</div>
         <div class="breakdown-detail">
           <span>${formatNumber(item.quantity, false)} ${unitLabel}${exposure === null || exposure === undefined ? '' : ` · ${formatNumber(exposure, false)} ${escapeHtml(item.underlying_ticker || 'underlying')} shares`}</span>
-          <span class="${plClass}">${pnl === null ? 'P/L unavailable' : `${plSign}${formatCurrencyAmount(Math.abs(pnl), quoteCurrency)}`}</span>
+          <span class="${plClass}">${pnl === null ? 'P/L unavailable' : `${plSign}${formatCurrencyAmount(Math.abs(pnl), pnlCurrency)}${typeof pnlPercent === 'number' ? ` (${pnlPercent.toFixed(2)}%)` : ''}`}</span>
         </div>
       </div>
     `;
@@ -907,24 +940,30 @@ function renderPortfolioBreakdown() {
   container.innerHTML = items.join('');
 }
 
-function openPortfolioModal() {
+function openPortfolioModal(ticker = null) {
   if (!state.isUnlocked) {
     document.getElementById('unlock-modal').classList.remove('hidden');
     return;
   }
 
-  // Clear fields for new entry
-  document.getElementById('port-ticker-input').value = '';
-  document.getElementById('port-asset-type').value = 'equity';
-  document.getElementById('port-cost-currency').value = 'USD';
-  document.getElementById('port-underlying-ticker').value = '';
-  document.getElementById('port-cedears-ratio').value = '';
-  document.getElementById('port-ratio-source').value = '';
-  document.getElementById('port-ratio-date').value = '';
-  document.getElementById('port-qty').value = '';
-  document.getElementById('port-cost-per-share').value = '';
-  document.getElementById('port-total-cost').value = '';
+  const existing = ticker ? state.portfolio.find(item => item.ticker === ticker) : null;
+  state.editingTicker = existing?.ticker || null;
+  document.getElementById('port-ticker-input').value = existing?.ticker || '';
+  document.getElementById('port-asset-type').value = existing?.asset_type || 'equity';
+  document.getElementById('port-underlying-ticker').value = existing?.underlying_ticker || '';
+  document.getElementById('port-cedears-ratio').value = existing?.cedears_per_underlying ?? '';
+  document.getElementById('port-ratio-source').value = existing?.ratio_source || '';
+  document.getElementById('port-ratio-date').value = existing?.ratio_as_of || '';
+  document.getElementById('port-qty').value = existing?.quantity ?? '';
+  document.getElementById('port-cost-per-share').value = existing?.cost_basis ?? '';
+  document.getElementById('port-total-cost').value = existing
+    ? (existing.quantity * existing.cost_basis).toFixed(2)
+    : '';
   handleAssetTypeChange();
+  document.getElementById('port-cost-currency').value = existing?.cost_currency || (existing?.asset_type === 'cedear' ? '' : 'USD');
+  document.getElementById('port-ticker-input').readOnly = Boolean(existing);
+  document.getElementById('port-modal-title').lastChild.textContent = existing ? ' Edit Position' : ' Add Position';
+  document.getElementById('save-portfolio-item-btn').textContent = existing ? 'Save Changes' : 'Save Position';
 
   document.getElementById('portfolio-modal').classList.remove('hidden');
   createIcons({ icons: { PlusCircle } });
@@ -935,13 +974,246 @@ function handleAssetTypeChange() {
   const assetType = document.getElementById('port-asset-type').value;
   const isCedear = assetType === 'cedear';
   document.getElementById('cedear-fields').classList.toggle('hidden', !isCedear);
-  document.getElementById('port-cost-currency').value = isCedear ? 'ARS' : 'USD';
+  document.getElementById('port-cost-currency').value = isCedear ? '' : 'USD';
   document.getElementById('port-cost-basis-label').textContent = isCedear
     ? 'Average Cost Per CEDEAR'
     : 'Average Cost Per Share / Unit';
   document.getElementById('port-ticker-input').placeholder = isCedear
     ? 'e.g. AAPL.BA'
     : 'e.g. AAPL, MSFT';
+}
+
+function openAddUnitsModal(ticker) {
+  if (!state.isUnlocked) {
+    document.getElementById('unlock-modal').classList.remove('hidden');
+    return;
+  }
+  const holding = state.portfolio.find(item => item.ticker === ticker);
+  if (!holding) return;
+
+  state.addingUnitsTicker = ticker;
+  document.getElementById('add-units-position').textContent =
+    `${holding.ticker}: ${formatNumber(holding.quantity, false)} units at ${formatCurrencyAmount(holding.cost_basis, holding.cost_currency || 'USD')} average cost.`;
+  document.getElementById('added-cost-label').textContent = `Purchase cost per unit (${holding.cost_currency || 'USD'})`;
+  document.getElementById('added-qty').value = '';
+  document.getElementById('added-cost').value = '';
+  document.getElementById('add-units-preview').textContent = '';
+  document.getElementById('add-units-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('added-qty').focus(), 50);
+}
+
+function closeAddUnitsModal() {
+  document.getElementById('add-units-modal').classList.add('hidden');
+  state.addingUnitsTicker = null;
+}
+
+function calculateAddedUnits() {
+  const holding = state.portfolio.find(item => item.ticker === state.addingUnitsTicker);
+  const addedQuantity = parseFloat(document.getElementById('added-qty').value);
+  const purchaseCost = parseFloat(document.getElementById('added-cost').value);
+  const preview = document.getElementById('add-units-preview');
+  if (!holding || !Number.isFinite(addedQuantity) || !Number.isFinite(purchaseCost) || addedQuantity <= 0 || purchaseCost <= 0) {
+    preview.textContent = '';
+    return;
+  }
+  const newQuantity = holding.quantity + addedQuantity;
+  const newAverageCost = (holding.quantity * holding.cost_basis + addedQuantity * purchaseCost) / newQuantity;
+  preview.textContent = `New total: ${formatNumber(newQuantity, false)} units · new average cost: ${formatCurrencyAmount(newAverageCost, holding.cost_currency || 'USD')}`;
+}
+
+async function handleAddUnits(event) {
+  event.preventDefault();
+  const holding = state.portfolio.find(item => item.ticker === state.addingUnitsTicker);
+  if (!holding) return;
+  const addedQuantity = parseFloat(document.getElementById('added-qty').value);
+  const purchaseCost = parseFloat(document.getElementById('added-cost').value);
+  if (!Number.isFinite(addedQuantity) || !Number.isFinite(purchaseCost) || addedQuantity <= 0 || purchaseCost <= 0) {
+    alert('Enter a positive unit amount and purchase cost.');
+    return;
+  }
+
+  const response = await fetch(`/api/portfolio/${encodeURIComponent(holding.ticker)}/add-units`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      quantity: addedQuantity,
+      cost_basis: purchaseCost,
+      cost_currency: holding.cost_currency || 'USD'
+    })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    alert(error.detail || 'Could not add units.');
+    return;
+  }
+  closeAddUnitsModal();
+  await updatePortfolio();
+}
+
+function normalizePortfolioCsvHeader(header) {
+  const normalized = String(header)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s-]+/g, '_');
+  const aliases = {
+    symbol: 'ticker',
+    simbolo: 'ticker',
+    simbolo_local: 'ticker',
+    cantidad: 'quantity',
+    unidades: 'quantity',
+    avg_cost: 'cost_basis',
+    average_cost: 'cost_basis',
+    ppc: 'cost_basis',
+    costo_promedio: 'cost_basis',
+    moneda: 'cost_currency',
+    moneda_costo: 'cost_currency',
+    currency: 'cost_currency',
+    type: 'asset_type',
+    tipo: 'asset_type',
+    instrument_type: 'asset_type',
+    underlying: 'underlying_ticker',
+    subyacente: 'underlying_ticker',
+    ratio: 'cedears_per_underlying',
+    ratio_source: 'ratio_source',
+    fuente_ratio: 'ratio_source',
+    ratio_date: 'ratio_as_of',
+    fecha_ratio: 'ratio_as_of'
+  };
+  return aliases[normalized] || normalized;
+}
+
+function parseCsvNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  let normalized = String(value).trim().replace(/[\s$]/g, '');
+  const comma = normalized.lastIndexOf(',');
+  const dot = normalized.lastIndexOf('.');
+  if (comma >= 0 && dot >= 0) {
+    normalized = comma > dot
+      ? normalized.replace(/\./g, '').replace(',', '.')
+      : normalized.replace(/,/g, '');
+  } else if (comma >= 0) {
+    normalized = normalized.replace(',', '.');
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function handlePortfolioCsvSelected(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  if (!state.isUnlocked) {
+    document.getElementById('unlock-modal').classList.remove('hidden');
+    return;
+  }
+
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: 'greedy',
+    transformHeader: normalizePortfolioCsvHeader,
+    complete: result => showPortfolioCsvPreview(result, file.name)
+  });
+}
+
+function showPortfolioCsvPreview(result, fileName) {
+  const rows = [];
+  const seen = new Set();
+  const parseErrors = (result.errors || []).map(error => `CSV row ${error.row + 2}: ${error.message}`);
+
+  if (!result.meta.fields?.includes('ticker') || !result.meta.fields?.includes('quantity') || !result.meta.fields?.includes('cost_basis')) {
+    parseErrors.push('Required CSV columns: ticker, quantity, cost_basis.');
+  }
+
+  for (const [index, raw] of result.data.entries()) {
+    const errors = [];
+    const ticker = String(raw.ticker || '').trim().toUpperCase();
+    const quantity = parseCsvNumber(raw.quantity);
+    const cost_basis = parseCsvNumber(raw.cost_basis);
+    const assetValue = String(raw.asset_type || '').trim().toLowerCase();
+    const asset_type = assetValue === 'cedear' || assetValue === 'cedear (argentina)' ? 'cedear' : 'equity';
+    const cost_currency = String(raw.cost_currency || (asset_type === 'cedear' ? '' : 'USD')).trim().toUpperCase();
+    const ratio = parseCsvNumber(raw.cedears_per_underlying);
+    const ratio_as_of = String(raw.ratio_as_of || '').trim() || null;
+
+    if (!ticker) errors.push('Ticker is required.');
+    if (quantity === null || quantity <= 0) errors.push('Quantity must be a positive number.');
+    if (cost_basis === null || cost_basis <= 0) errors.push('Cost basis must be a positive number.');
+    if (!/^[A-Z]{3}$/.test(cost_currency)) errors.push('Cost currency must be a three-letter code.');
+    if (raw.cedears_per_underlying && (ratio === null || ratio <= 0)) errors.push('CEDEAR ratio must be a positive number.');
+    if (ratio_as_of && !/^\d{4}-\d{2}-\d{2}$/.test(ratio_as_of)) errors.push('Ratio date must use YYYY-MM-DD.');
+    if (ticker && seen.has(ticker)) errors.push('Duplicate ticker in CSV.');
+    if (ticker) seen.add(ticker);
+
+    rows.push({
+      row: index + 2,
+      errors,
+      holding: {
+        ticker,
+        quantity,
+        cost_basis,
+        cost_currency,
+        asset_type,
+        underlying_ticker: String(raw.underlying_ticker || '').trim().toUpperCase() || null,
+        cedears_per_underlying: ratio,
+        ratio_source: String(raw.ratio_source || '').trim() || null,
+        ratio_as_of,
+        added_at: new Date().toISOString()
+      }
+    });
+  }
+
+  if (rows.length > 500) parseErrors.push('Import is limited to 500 holdings per file.');
+  state.csvPreview = rows;
+  const invalidRows = rows.filter(row => row.errors.length);
+  const summary = document.getElementById('portfolio-csv-summary');
+  summary.textContent = `${fileName}: ${rows.length} rows; ${rows.length - invalidRows.length} valid; ${invalidRows.length} with errors. Existing tickers will be updated; other holdings are retained.`;
+  const errorBox = document.getElementById('portfolio-csv-errors');
+  errorBox.textContent = [...parseErrors, ...invalidRows.map(row => `Row ${row.row}: ${row.errors.join(' ')}`)].join('\n');
+
+  document.getElementById('portfolio-csv-preview-body').innerHTML = rows.slice(0, 30).map(row => {
+    const item = row.holding;
+    const cells = [item.ticker || '—', item.asset_type, item.quantity ?? '—', item.cost_basis ?? '—', item.cost_currency, item.underlying_ticker || '—', item.cedears_per_underlying ?? '—'];
+    return `<tr class="${row.errors.length ? 'csv-row-error' : ''}">${cells.map(value => `<td>${escapeHtml(value)}</td>`).join('')}</tr>`;
+  }).join('');
+  if (rows.length > 30) errorBox.textContent += '\nOnly the first 30 rows are shown in the preview.';
+  document.getElementById('confirm-csv-import-btn').disabled = rows.length === 0 || invalidRows.length > 0 || parseErrors.length > 0;
+  document.getElementById('portfolio-csv-preview-modal').classList.remove('hidden');
+}
+
+async function importPortfolioCsv() {
+  if (!state.isUnlocked || !state.csvPreview.length || state.csvPreview.some(row => row.errors.length)) return;
+  const response = await fetch('/api/portfolio/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ holdings: state.csvPreview.map(row => row.holding) })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    alert(error.detail || 'CSV import failed.');
+    return;
+  }
+  const result = await response.json();
+  closePortfolioCsvPreview();
+  await updatePortfolio();
+  alert(`Imported ${result.added} new and updated ${result.updated} existing positions.`);
+}
+
+function closePortfolioCsvPreview() {
+  document.getElementById('portfolio-csv-preview-modal').classList.add('hidden');
+  state.csvPreview = [];
+}
+
+function downloadPortfolioCsvTemplate() {
+  const header = 'ticker,quantity,cost_basis,cost_currency,asset_type,underlying_ticker,cedears_per_underlying,ratio_source,ratio_as_of\n';
+  const blob = new Blob([header], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'mcpfolio-portfolio-template.csv';
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function calculateTotalCost() {
@@ -961,14 +1233,17 @@ async function handleSaveHolding(e) {
   if (!ticker) return;
 
   const quantity = parseFloat(document.getElementById('port-qty').value);
+  const existing = state.editingTicker
+    ? state.portfolio.find(item => item.ticker === state.editingTicker)
+    : null;
   const asset_type = document.getElementById('port-asset-type').value;
   const cost_currency = document.getElementById('port-cost-currency').value;
   const cost_basis = parseFloat(document.getElementById('port-cost-per-share').value);
   const ratioInput = document.getElementById('port-cedears-ratio').value;
   const cedears_per_underlying = ratioInput ? parseFloat(ratioInput) : null;
 
-  if (isNaN(quantity) || isNaN(cost_basis) || quantity <= 0 || cost_basis <= 0) {
-    alert('Please enter a valid quantity and average cost per unit.');
+  if (isNaN(quantity) || isNaN(cost_basis) || quantity <= 0 || cost_basis <= 0 || !cost_currency) {
+    alert('Please enter a valid quantity, average cost per unit, and cost currency.');
     return;
   }
   if (ratioInput && (!Number.isFinite(cedears_per_underlying) || cedears_per_underlying <= 0)) {
@@ -980,7 +1255,7 @@ async function handleSaveHolding(e) {
     ticker,
     quantity,
     cost_basis,
-    added_at: new Date().toISOString(),
+    added_at: existing?.added_at || new Date().toISOString(),
     asset_type,
     cost_currency,
     underlying_ticker: asset_type === 'cedear'
@@ -1003,6 +1278,7 @@ async function handleSaveHolding(e) {
     });
     if (res.ok) {
       document.getElementById('portfolio-modal').classList.add('hidden');
+      state.editingTicker = null;
       await updatePortfolio();
     } else {
       const err = await res.json();

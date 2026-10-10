@@ -46,9 +46,11 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 ### CEDEARs
 - Store the local Argentine ticker, underlying ticker, cost currency, conversion ratio, source and check date per position.
 - Ratios mean CEDEAR units per one underlying share; equivalent shares are `quantity / ratio` and are marked unverified.
-- ARS and USD values and P/L stay in separate totals. No FX or CCL rate is assumed; P/L is unavailable when cost and quote currencies differ.
+- ARS and USD market values stay in separate totals. Cross-currency P/L uses only a fresh, dated CCL midpoint and is unavailable if that source is missing or stale.
 - Quote timestamps older than 7 days and ratios older than 365 days are marked stale. Missing metadata remains unknown.
 - Existing holdings default to equity/USD and are not automatically rewritten.
+- Add Units updates quantity and weighted-average cost. CSV import previews locally and merges by ticker only after confirmation.
+- For ARS/USD P/L, a fresh DolarAPI CCL midpoint converts market value to the cost currency; market value itself stays in quote currency. The CCL source/date are shown, and stale or unavailable CCL leaves P/L unavailable.
 
 ### Advisor (AI Financial Chat)
 - **Real-time streaming** — ChatGPT-style conversational interface with token-by-token streaming over WebSocket

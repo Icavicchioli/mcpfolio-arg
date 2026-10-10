@@ -94,8 +94,9 @@ def calculate_position_metrics(
     underlying_ticker: str | None = None,
     cedears_per_underlying: float | None = None,
     ratio_as_of: date | datetime | str | None = None,
+    fx_quote: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Calculate values only in comparable units/currencies; never infer FX."""
+    """Calculate values in quote currency and convert P/L only with explicit fresh FX."""
     quote_currency = normalize_currency(quote.get("currency"))
     normalized_cost_currency = normalize_currency(cost_currency)
     price = quote.get("current_price")
@@ -109,28 +110,67 @@ def calculate_position_metrics(
         and normalized_cost_currency is not None
         and quote_currency == normalized_cost_currency
     )
-    comparable = bool(valid_price and currency_matches)
+    pnl_currency = normalized_cost_currency if currency_matches else None
+    pnl_value = float(market_value) - cost_value if valid_price and currency_matches else None
+    fx_conversion_status = "not_required" if currency_matches else "unavailable"
+
+    if valid_price and not currency_matches and quote_currency and normalized_cost_currency:
+        fx_rate = fx_quote.get("ars_per_usd") if fx_quote else None
+        fx_is_fresh = fx_quote and fx_quote.get("quote_status") == "fresh"
+        valid_fx_rate = (
+            isinstance(fx_rate, int | float)
+            and not isinstance(fx_rate, bool)
+            and math.isfinite(float(fx_rate))
+            and float(fx_rate) > 0
+        )
+        if fx_is_fresh and valid_fx_rate and {quote_currency, normalized_cost_currency} == {"ARS", "USD"}:
+            converted_market_value = (
+                float(market_value) / float(fx_rate)
+                if quote_currency == "ARS"
+                else float(market_value) * float(fx_rate)
+            )
+            pnl_value = converted_market_value - cost_value
+            pnl_currency = normalized_cost_currency
+            fx_conversion_status = "current_ccl"
+        else:
+            fx_conversion_status = (
+                "stale_ccl"
+                if fx_quote and fx_quote.get("quote_status") == "stale"
+                else "ccl_unavailable"
+                if not fx_quote
+                else "unsupported_currency_pair"
+                if {quote_currency, normalized_cost_currency} != {"ARS", "USD"}
+                else "invalid_ccl"
+            )
+
+    comparable = pnl_value is not None
+    valuation_status = (
+        "comparable"
+        if currency_matches and comparable
+        else "comparable_via_ccl"
+        if fx_conversion_status == "current_ccl" and comparable
+        else "missing_price"
+        if not valid_price
+        else "currency_unknown"
+        if quote_currency is None or normalized_cost_currency is None
+        else "currency_mismatch"
+    )
 
     metrics: dict[str, Any] = {
         "market_value": market_value,
         "market_value_currency": quote_currency,
         "cost_value": cost_value,
         "cost_currency": normalized_cost_currency,
-        "pnl": market_value - cost_value if comparable else None,
+        "pnl": pnl_value,
+        "pnl_currency": pnl_currency,
         "pnl_percent": (
-            (market_value - cost_value) / cost_value * 100
+            pnl_value / cost_value * 100
             if comparable and cost_value > 0
             else None
         ),
-        "valuation_status": (
-            "comparable"
-            if comparable
-            else "missing_price"
-            if not valid_price
-            else "currency_unknown"
-            if quote_currency is None or normalized_cost_currency is None
-            else "currency_mismatch"
-        ),
+        "valuation_status": valuation_status,
+        "fx_conversion_status": fx_conversion_status,
+        "fx_quote": fx_quote if fx_conversion_status == "current_ccl" else None,
         "quote_currency": quote_currency,
         "quote_as_of": quote.get("quote_as_of"),
         "quote_status": quote.get("quote_status", "unknown"),
@@ -181,12 +221,13 @@ def aggregate_position_metrics(positions: list[dict[str, Any]]) -> dict[str, Any
             )
 
         pnl = position.get("pnl")
-        if position.get("valuation_status") == "comparable" and market_currency:
-            pnl_by_currency[market_currency] = pnl_by_currency.get(market_currency, 0.0) + float(
+        pnl_currency = position.get("pnl_currency")
+        if position.get("valuation_status") in {"comparable", "comparable_via_ccl"} and pnl_currency:
+            pnl_by_currency[pnl_currency] = pnl_by_currency.get(pnl_currency, 0.0) + float(
                 pnl
             )
-            pnl_cost_by_currency[market_currency] = (
-                pnl_cost_by_currency.get(market_currency, 0.0) + float(cost_value)
+            pnl_cost_by_currency[pnl_currency] = (
+                pnl_cost_by_currency.get(pnl_currency, 0.0) + float(cost_value)
             )
         else:
             not_comparable += 1
