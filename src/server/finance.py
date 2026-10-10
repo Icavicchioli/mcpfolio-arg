@@ -4,7 +4,7 @@
 
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import contextlib
 
 from logging_config import get_logger
+from market.cedears import normalize_currency, quote_freshness
 from tools.wrappers import circuit_breaker, with_retry
 
 logger = get_logger(__name__)
@@ -197,6 +198,21 @@ def get_market_snapshot(ticker: str) -> dict:
 
         volume = info.get("volume") or info.get("regularMarketVolume")
 
+        try:
+            fast_info = stock.fast_info
+        except Exception:
+            fast_info = None
+
+        currency = normalize_currency(
+            info.get("currency") or _optional_value(fast_info, "currency")
+        )
+        exchange = (
+            info.get("exchange")
+            or info.get("fullExchangeName")
+            or _optional_value(fast_info, "exchange")
+        )
+        quote_as_of = _quote_timestamp(info, hist)
+
         # Calendar events - simplify to dict only
         calendar_data = None
         try:
@@ -243,6 +259,11 @@ def get_market_snapshot(ticker: str) -> dict:
             "ticker": ticker,
             "quote_type": info.get("quoteType"),
             "current_price": float(price) if price else None,
+            "currency": currency,
+            "exchange": exchange if isinstance(exchange, str) else None,
+            "quote_as_of": quote_as_of,
+            "quote_status": quote_freshness(quote_as_of),
+            "quote_source": "Yahoo Finance via yfinance",
             "volume": int(volume) if volume else None,
             "high_52_week": round(high_52w, 2),
             "low_52_week": round(low_52w, 2),
@@ -710,6 +731,30 @@ def get_fund_info(ticker: str) -> dict:
 
 # 30-minute cache for macro context — market conditions don't change by the minute.
 _MACRO_CACHE: TTLCache = TTLCache(maxsize=1, ttl=1800)
+
+
+def _optional_value(source, key: str):
+    """Read scalar metadata from yfinance containers without leaking Mock values."""
+    try:
+        value = source.get(key) if hasattr(source, "get") else None
+    except Exception:
+        return None
+    return value if isinstance(value, str | int | float | datetime) else None
+
+
+def _quote_timestamp(info: dict, history: pd.DataFrame) -> str | None:
+    market_time = info.get("regularMarketTime")
+    if isinstance(market_time, int | float) and market_time > 0:
+        return datetime.fromtimestamp(market_time, tz=timezone.utc).isoformat()
+    if isinstance(market_time, str):
+        try:
+            return datetime.fromisoformat(market_time.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            pass
+    if len(history.index):
+        latest = history.index[-1]
+        return latest.isoformat() if hasattr(latest, "isoformat") else str(latest)
+    return None
 _MACRO_CACHE_KEY = "global"
 
 

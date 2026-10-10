@@ -47,3 +47,7 @@ dependencies:
 
     # HTTP Client
     - httpx==0.28.1
+
+    # Keep AnyIO in this environment and pin the fakeredis API expected by pydocket 0.16.6.
+    - anyio==4.11.0
+    - fakeredis==2.38.0

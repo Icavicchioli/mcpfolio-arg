@@ -43,6 +43,13 @@ MCPFolio connects a locally-running Ollama model to live market data through the
 - **Thesis history** — every analysis run while unlocked is persisted to `data/thesis.enc`; the Thesis History panel shows date · ticker · color-coded recommendation · confidence · price · key risk preview, with click-to-expand for the full AI analysis; survives server restarts
 - **Danger zone** — permanently wipe all encrypted portfolio data from the device
 
+### CEDEARs
+- Store the local Argentine ticker, underlying ticker, cost currency, conversion ratio, source and check date per position.
+- Ratios mean CEDEAR units per one underlying share; equivalent shares are `quantity / ratio` and are marked unverified.
+- ARS and USD values and P/L stay in separate totals. No FX or CCL rate is assumed; P/L is unavailable when cost and quote currencies differ.
+- Quote timestamps older than 7 days and ratios older than 365 days are marked stale. Missing metadata remains unknown.
+- Existing holdings default to equity/USD and are not automatically rewritten.
+
 ### Advisor (AI Financial Chat)
 - **Real-time streaming** — ChatGPT-style conversational interface with token-by-token streaming over WebSocket
 - **Multi-turn memory** — LangGraph `MemorySaver` preserves full conversation history; follow-up questions reference prior context
@@ -215,6 +222,8 @@ bash scripts/start-dashboard.sh
 ```
 
 The script uses `conda run -n mcpfolio` to run everything inside the environment — no manual activation needed. It builds the frontend, checks that Ollama is running, starts the FastAPI backend, waits for a healthy response, then opens **http://localhost:8000** in your browser.
+
+On Windows, use `start-mcpfolio.ps1` (also used by the desktop shortcut). It runs the existing `mcpfolio` Conda interpreter, prioritizes that environment's packages, and refuses to kill or replace an unrelated process using the selected port. Use `-Port 8001` to run the fork beside another local MCPfolio instance.
 
 ### CLI mode
 

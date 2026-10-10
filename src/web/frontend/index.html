@@ -96,6 +96,7 @@
                   </div>
                 <span class="price-badge" id="price-display">$0.00</span>
               </div>
+                <div id="quote-meta" class="quote-meta hidden"></div>
               <div class="stats-row">
                 <div class="stat">
                   <label>Volume</label>
@@ -113,15 +114,15 @@
               <div class="stats-row"
                 style="margin-top: 1rem; border-top: 1px solid var(--glass-border); padding-top: 1rem;">
                 <div class="stat">
-                  <label>Mkt Cap</label>
+                  <label id="mktcap-label">Mkt Cap</label>
                   <span id="mktcap-display">---</span>
                 </div>
                 <div class="stat">
-                  <label>P/E Ratio</label>
+                  <label id="pe-label">P/E Ratio</label>
                   <span id="pe-display">---</span>
                 </div>
                 <div class="stat">
-                  <label>Div Yield</label>
+                  <label id="div-label">Div Yield</label>
                   <span id="div-display">---</span>
                 </div>
               </div>
@@ -188,11 +189,11 @@
               <div class="portfolio-summary">
                 <div class="summary-item">
                   <label>Total Value</label>
-                  <span id="total-value">$0.00</span>
+                  <span id="total-value">No holdings</span>
                 </div>
                 <div class="summary-item">
                   <label>Total G/L</label>
-                  <span id="total-pl" class="neutral">$0.00 (0.00%)</span>
+                  <span id="total-pl" class="neutral">Unavailable</span>
                 </div>
               </div>
               <div class="portfolio-header-actions">
@@ -211,11 +212,11 @@
                 <thead>
                   <tr>
                     <th>Ticker</th>
-                    <th>Shares</th>
-                    <th>Cost / Share</th>
+                    <th>Units</th>
+                    <th>Cost / Unit</th>
                     <th>Current Price</th>
-                    <th>Total Value</th>
-                    <th>G/L</th>
+                    <th>Market Value</th>
+                    <th>P/L</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -227,9 +228,10 @@
 
             <!-- Pie Chart — equity allocation -->
             <div class="portfolio-pie-card glass">
-              <h3><i data-lucide="pie-chart"></i> Equity Allocation</h3>
+              <h3><i data-lucide="pie-chart"></i> Allocation by Currency</h3>
               <div class="pie-chart-container">
                 <canvas id="portfolio-pie-chart"></canvas>
+                <p id="portfolio-allocation-note" class="placeholder hidden"></p>
               </div>
             </div>
 
@@ -284,18 +286,44 @@
             <h3 id="port-modal-title"><i data-lucide="plus-circle"></i> Add Position</h3>
             <form id="portfolio-form">
               <div class="input-group">
-                <label>Ticker Symbol</label>
-                <input type="text" id="port-ticker-input" placeholder="e.g. AAPL, MSFT"
-                  style="text-transform: uppercase;" autocomplete="off" required>
+                <label>Instrument Type</label>
+                <select id="port-asset-type">
+                  <option value="equity">Equity / ETF</option>
+                  <option value="cedear">CEDEAR (Argentina)</option>
+                </select>
               </div>
               <div class="input-group">
-                <label>Number of Shares</label>
+                <label>Ticker Symbol</label>
+                <input type="text" id="port-ticker-input" placeholder="e.g. AAPL or AAPL.BA"
+                  style="text-transform: uppercase;" autocomplete="off" required>
+              </div>
+              <div class="input-group hidden" id="cedear-fields">
+                <label>Underlying Ticker</label>
+                <input type="text" id="port-underlying-ticker" placeholder="e.g. AAPL"
+                  style="text-transform: uppercase;" autocomplete="off">
+                <label for="port-cedears-ratio" style="margin-top:0.75rem;">CEDEARs per underlying share</label>
+                <input type="number" id="port-cedears-ratio" step="any" min="0.000001"
+                  placeholder="Enter the ratio only when verified">
+                <label for="port-ratio-source" style="margin-top:0.75rem;">Ratio source</label>
+                <input type="text" id="port-ratio-source" placeholder="Source name / URL (not independently verified)">
+                <label for="port-ratio-date" style="margin-top:0.75rem;">Ratio checked on</label>
+                <input type="date" id="port-ratio-date">
+              </div>
+              <div class="input-group">
+                <label>Number of Units</label>
                 <input type="number" id="port-qty" step="0.0001" min="0.0001" placeholder="e.g. 10" required>
               </div>
               <div class="input-group">
-                <label>Cost Basis Per Share ($)</label>
+                <label>Cost Currency</label>
+                <select id="port-cost-currency">
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label id="port-cost-basis-label">Average Cost Per Unit</label>
                 <input type="number" id="port-cost-per-share" step="0.01" min="0.01"
-                  placeholder="e.g. 150.00 — what you paid per share" required>
+                  placeholder="What you paid per unit" required>
               </div>
               <div class="input-group">
                 <label>Total Cost (calculated)</label>

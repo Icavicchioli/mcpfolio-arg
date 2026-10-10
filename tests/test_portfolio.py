@@ -40,6 +40,20 @@ def test_portfolio_manager_lifecycle(tmp_path):
     assert pm.is_unlocked() is False
 
 
+def test_legacy_holding_defaults_to_usd_equity():
+    item = PortfolioItem(
+        ticker="AAPL",
+        quantity=10,
+        cost_basis=150.0,
+        added_at=datetime.now(),
+    )
+
+    assert item.asset_type == "equity"
+    assert item.cost_currency == "USD"
+    assert item.underlying_ticker is None
+    assert item.cedears_per_underlying is None
+
+
 def test_portfolio_wipe(tmp_path):
     pm = SecurePortfolioManager(tmp_path)
     pm.unlock("pass")

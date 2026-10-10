@@ -39,7 +39,7 @@ NEWS = [
 def test_format_single_context_basic():
     ctx = format_single_context("AAPL", SNAPSHOT, None, None)
     assert "AAPL" in ctx
-    assert "$195.5" in ctx
+    assert "currency unknown 195.5" in ctx
     assert "No data available" in ctx  # no sentiment, no news
 
 
@@ -64,7 +64,7 @@ def test_format_single_context_with_news():
 
 def test_format_single_context_market_cap_billions():
     ctx = format_single_context("AAPL", SNAPSHOT, None, None)
-    assert "$3000.0B" in ctx
+    assert "3000.0B (currency unknown)" in ctx
 
 
 def test_format_single_context_dividend():
@@ -75,7 +75,45 @@ def test_format_single_context_dividend():
 def test_format_single_context_no_dividend():
     snap = {**SNAPSHOT, "dividend_yield": None}
     ctx = format_single_context("AAPL", snap, None, None)
-    assert "no dividend" in ctx
+    assert "N/A (not provided)" in ctx
+
+
+def test_format_single_context_cedear_preserves_currencies_and_ratio_status():
+    snap = {
+        **SNAPSHOT,
+        "asset_type": "cedear",
+        "ticker": "AAPL.BA",
+        "currency": "ARS",
+        "exchange": "BUE",
+        "quote_as_of": "2026-10-09T00:00:00-03:00",
+        "quote_status": "fresh",
+        "current_price": 27200.0,
+        "underlying_ticker": "AAPL",
+        "underlying_snapshot": {
+            "current_price": 250.0,
+            "currency": "USD",
+            "quote_as_of": "2026-10-09T20:00:00+00:00",
+            "quote_status": "fresh",
+            "market_cap": 3_000_000_000_000,
+            "pe_ratio": 25.0,
+            "dividend_yield": 0.005,
+            "volatility_52_week_pct": 20.0,
+        },
+        "cedears_per_underlying": 10,
+        "ratio_source": "User-provided source",
+        "ratio_as_of": "2026-10-01",
+        "ratio_status": "user_provided_unverified",
+        "ratio_verified": False,
+        "underlying_equivalent_quantity": 2.5,
+    }
+
+    ctx = format_single_context("AAPL.BA", snap, None, None)
+
+    assert "ARS 27200.0" in ctx
+    assert "USD 250.0" in ctx
+    assert "10 CEDEAR units per 1 AAPL share" in ctx
+    assert "user_provided_unverified" in ctx
+    assert "2.5 (ratio is not independently verified)" in ctx
 
 
 def test_format_single_context_missing_price():
@@ -130,6 +168,23 @@ _SINGLELINE_OUTPUT = (
 
 def test_parse_llm_output_multiline():
     r = parse_llm_output(_MULTILINE_OUTPUT)
+    assert r["recommendation"] == "BUY"
+    assert r["confidence"] == 0.85
+    assert r["key_risk"] == "High valuation premium"
+    assert r["fair_value"] == 210.0
+
+
+def test_parse_llm_output_markdown_headings():
+    output = """\
+## RECOMMENDATION: BUY
+## CONFIDENCE: 0.85
+## KEY_RISK: High valuation premium
+## FAIR_VALUE: $210.00
+
+## Thesis
+Strong fundamentals support a long-term hold.
+"""
+    r = parse_llm_output(output)
     assert r["recommendation"] == "BUY"
     assert r["confidence"] == 0.85
     assert r["key_risk"] == "High valuation premium"

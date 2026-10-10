@@ -120,7 +120,7 @@ def parse_llm_output(text: str) -> dict:
     """
     # Lookahead stops each field's value at the next known keyword or end-of-string.
     # This works whether the fields are newline-separated or all on one line.
-    _BOUNDARY = r"(?=\s*(?:RECOMMENDATION|CONFIDENCE|KEY[_ ]RISK|FAIR[_ ]VALUE)\s*:|$)"
+    _BOUNDARY = r"(?=\s*(?:#{1,6}\s*)?(?:RECOMMENDATION|CONFIDENCE|KEY[_ ]RISK|FAIR[_ ]VALUE)\s*:|$)"
 
     def _find(label: str) -> str | None:
         # Accept both underscore and space variants (KEY_RISK / KEY RISK, etc.)
@@ -160,11 +160,13 @@ def parse_llm_output(text: str) -> dict:
     }
 
 
-def _fmt_mktcap(mkt_cap) -> str:
+def _fmt_mktcap(mkt_cap, currency: str | None = None) -> str:
     if mkt_cap and mkt_cap > 1e9:
-        return f"${mkt_cap / 1e9:.1f}B"
+        amount = f"{mkt_cap / 1e9:.1f}B"
+        return f"{currency} {amount}" if currency else f"{amount} (currency unknown)"
     if mkt_cap and mkt_cap > 1e6:
-        return f"${mkt_cap / 1e6:.0f}M"
+        amount = f"{mkt_cap / 1e6:.0f}M"
+        return f"{currency} {amount}" if currency else f"{amount} (currency unknown)"
     return "N/A"
 
 
@@ -181,31 +183,87 @@ def format_single_context(
     All inputs should be already-parsed dicts/lists (not raw MCP results).
     """
     price = snapshot.get("current_price", "N/A")
-    mkt_cap_str = _fmt_mktcap(snapshot.get("market_cap"))
-    pe_ratio = snapshot.get("pe_ratio") or snapshot.get("trailing_pe")
+    currency = snapshot.get("currency")
+    price_label = f"${price}" if currency == "USD" else f"{currency} {price}" if currency else f"currency unknown {price}"
+    quote_as_of = snapshot.get("quote_as_of") or "unknown"
+    quote_status = snapshot.get("quote_status") or "unknown"
+    is_cedear = snapshot.get("asset_type") == "cedear"
+    underlying_snapshot = snapshot.get("underlying_snapshot")
+    fundamentals = (
+        underlying_snapshot or {}
+        if is_cedear
+        else snapshot
+    )
+    mkt_cap_str = _fmt_mktcap(fundamentals.get("market_cap"), fundamentals.get("currency"))
+    pe_ratio = fundamentals.get("pe_ratio") or fundamentals.get("trailing_pe")
     pe_display = pe_ratio if pe_ratio is not None else "N/A"
-    div_yield = snapshot.get("dividend_yield")
-    div_str = f"{div_yield * 100:.2f}%" if div_yield else "0% (no dividend)"
-    vol_pct = snapshot.get("volatility_52_week_pct", 0)
-    week_high = snapshot.get("fifty_two_week_high", "N/A")
-    week_low = snapshot.get("fifty_two_week_low", "N/A")
+    div_yield = fundamentals.get("dividend_yield")
+    div_str = (
+        f"{div_yield * 100:.2f}%"
+        if div_yield is not None
+        else "N/A (not provided)"
+    )
+    vol_pct = fundamentals.get("volatility_52_week_pct", 0)
+    week_high = fundamentals.get("high_52_week", fundamentals.get("fifty_two_week_high", "N/A"))
+    week_low = fundamentals.get("low_52_week", fundamentals.get("fifty_two_week_low", "N/A"))
     change_pct = snapshot.get("change_percent", 0)
-    eps = snapshot.get("eps") or snapshot.get("trailing_eps") or "N/A"
-    rev = snapshot.get("revenue")
+    eps = fundamentals.get("eps") or fundamentals.get("trailing_eps") or "N/A"
+    rev = fundamentals.get("revenue")
     rev_str = f"${rev / 1e9:.1f}B" if rev and rev > 1e9 else f"${rev / 1e6:.0f}M" if rev else "N/A"
-    volume = snapshot.get("volume")
-    vol_str = f"{volume:,}" if volume else "N/A"
+    fundamentals_currency = fundamentals.get("currency") or "currency unknown"
 
     context = f"""MARKET DATA for {ticker}:
-- Price: ${price} ({change_pct:+.2f}% today)
-- Volume: {vol_str}
-- Market Cap: {mkt_cap_str}
+- Local quote: {price_label} (as of {quote_as_of}; freshness: {quote_status}; exchange: {snapshot.get('exchange') or 'unknown'})
+- Local market volume: {snapshot.get('volume') if snapshot.get('volume') is not None else 'N/A'}
+- Underlying market cap: {mkt_cap_str}
 - P/E Ratio: {pe_display}
 - EPS: {eps}
 - Revenue: {rev_str}
 - Dividend Yield: {div_str}
-- 52-Week Range: ${week_low} – ${week_high} (volatility: {vol_pct:.1f}%)
+- 52-Week Range: {fundamentals_currency} {week_low} – {fundamentals_currency} {week_high} (volatility: {vol_pct:.1f}%)
 """
+
+    if is_cedear:
+        underlying_ticker = snapshot.get("underlying_ticker")
+        ratio = snapshot.get("cedears_per_underlying")
+        if underlying_ticker and not underlying_snapshot:
+            context += f"\nUNDERLYING DATA: unavailable for {underlying_ticker}; do not substitute CEDEAR-local fundamentals.\n"
+        if underlying_ticker and underlying_snapshot:
+            context += (
+                f"\nUNDERLYING FUNDAMENTALS: {underlying_ticker}, quote "
+                f"{fundamentals.get('currency') or 'currency unknown'} "
+                f"{fundamentals.get('current_price', 'N/A')} as of "
+                f"{fundamentals.get('quote_as_of') or 'unknown'} "
+                f"(freshness: {fundamentals.get('quote_status') or 'unknown'}).\n"
+            )
+        if ratio:
+            context += (
+                f"CONVERSION: {ratio} CEDEAR units per 1 {underlying_ticker or 'underlying'} "
+                f"share; ratio status: {snapshot.get('ratio_status', 'unverified')} "
+                f"(source: {snapshot.get('ratio_source') or 'not provided'}, "
+                f"as of: {snapshot.get('ratio_as_of') or 'unknown'}).\n"
+            )
+        else:
+            context += "CONVERSION: ratio missing; underlying share exposure cannot be calculated.\n"
+        equivalent = snapshot.get("underlying_equivalent_quantity")
+        context += (
+            f"Underlying-equivalent shares: {equivalent} (ratio is not independently verified).\n"
+            if equivalent is not None
+            else "Underlying-equivalent shares: unavailable.\n"
+        )
+        valuation = snapshot.get("position_valuation")
+        if valuation:
+            if valuation.get("pnl") is None:
+                context += (
+                    "Position return: not comparable; cost currency "
+                    f"{valuation.get('cost_currency') or 'unknown'} differs from quote currency "
+                    f"{valuation.get('quote_currency') or 'unknown'}. No FX conversion was applied.\n"
+                )
+            else:
+                context += (
+                    f"Position return: {valuation['pnl']:.2f} {valuation['quote_currency']} "
+                    f"({valuation['pnl_percent']:.2f}%).\n"
+                )
 
     if sentiment:
         # Detect format: period-aggregate (strongBuy/buy/hold/sell/strongSell)

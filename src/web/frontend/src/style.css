@@ -528,6 +528,14 @@ main.no-sidebar {
   white-space: nowrap;
 }
 
+.quote-meta {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  margin: 0.45rem 0 0.8rem;
+  overflow-wrap: anywhere;
+}
+
 /* Stats */
 .stats-row {
   display: flex;

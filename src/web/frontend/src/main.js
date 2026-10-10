@@ -122,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Portfolio Input Logic — auto-calculate total cost as qty × cost-per-share
   document.getElementById('port-qty').addEventListener('input', calculateTotalCost);
   document.getElementById('port-cost-per-share').addEventListener('input', calculateTotalCost);
+  document.getElementById('port-asset-type').addEventListener('change', handleAssetTypeChange);
 
   // Re-render news when count changes (no re-fetch needed — we cache the full list)
   document.getElementById('news-count').addEventListener('change', () => {
@@ -329,6 +330,17 @@ async function handleAnalyze() {
   // Always fetch the input's max so changing count after analysis works from cache
   const newsCountEl = document.getElementById('news-count');
   const maxNews = parseInt(newsCountEl.max) || 20;
+  const holding = state.portfolio.find(item => item.ticker === ticker);
+  const positionContext = holding ? {
+    asset_type: holding.asset_type || 'equity',
+    underlying_ticker: holding.underlying_ticker || null,
+    cedears_per_underlying: holding.cedears_per_underlying || null,
+    ratio_source: holding.ratio_source || null,
+    ratio_as_of: holding.ratio_as_of || null,
+    quantity: holding.quantity,
+    cost_basis: holding.cost_basis,
+    cost_currency: holding.cost_currency || 'USD'
+  } : {};
 
   try {
     const res = await fetch('/api/analyze', {
@@ -338,7 +350,8 @@ async function handleAnalyze() {
         ticker,
         include_sentiment: true,
         include_news: true,
-        max_news: maxNews
+        max_news: maxNews,
+        ...positionContext
       })
     });
 
@@ -428,26 +441,42 @@ function updateCompareUI(data) {
 function updateUI(data) {
   // 1. Market Snapshot
   document.getElementById('ticker-display').textContent = data.ticker;
-  state.activePrice = data.market_snapshot.current_price || 0;
+  const snapshot = data.market_snapshot;
+  const quoteCurrency = snapshot.currency || null;
+  state.activePrice = Number.isFinite(Number(snapshot.current_price)) ? Number(snapshot.current_price) : null;
   const priceEl = document.getElementById('price-display');
-  priceEl.textContent = `$${formatNumber(state.activePrice)}`;
+  priceEl.textContent = formatCurrencyAmount(state.activePrice, quoteCurrency);
   priceEl.style.background = '';
   priceEl.style.color = '';
   priceEl.style.border = '';
-  document.getElementById('volume-display').textContent = formatNumber(data.market_snapshot.volume, true);
-  document.getElementById('high-display').textContent = `$${formatNumber(data.market_snapshot.high_52_week)}`;
-  document.getElementById('low-display').textContent = `$${formatNumber(data.market_snapshot.low_52_week)}`;
+  const quoteMeta = document.getElementById('quote-meta');
+  quoteMeta.textContent = `${snapshot.exchange || 'Exchange unknown'} · ${snapshot.quote_as_of || 'Date unknown'} · ${snapshot.quote_status || 'Freshness unknown'} · ${snapshot.quote_source || 'Source unknown'}`;
+  quoteMeta.classList.remove('hidden');
+  document.getElementById('volume-display').textContent = formatNumber(snapshot.volume, true);
+  document.getElementById('high-display').textContent = formatCurrencyAmount(snapshot.high_52_week, quoteCurrency);
+  document.getElementById('low-display').textContent = formatCurrencyAmount(snapshot.low_52_week, quoteCurrency);
 
   // NEW metrics
+  const fundamentals = snapshot.underlying_snapshot || snapshot;
+  const isCedear = snapshot.asset_type === 'cedear';
+  document.getElementById('mktcap-label').textContent = isCedear ? 'Underlying Mkt Cap' : 'Mkt Cap';
+  document.getElementById('pe-label').textContent = isCedear ? 'Underlying P/E' : 'P/E Ratio';
+  document.getElementById('div-label').textContent = isCedear ? 'Underlying Div Yield' : 'Div Yield';
   if (document.getElementById('mktcap-display')) {
-    const mktcap = data.market_snapshot.market_cap;
-    document.getElementById('mktcap-display').textContent = formatNumber(mktcap, true, 2);
+    const mktcap = fundamentals.market_cap;
+    document.getElementById('mktcap-display').textContent = mktcap === null || mktcap === undefined
+      ? 'N/A'
+      : `${fundamentals.currency || 'Currency unknown'} ${formatNumber(mktcap, true, 2)}`;
   }
   if (document.getElementById('pe-display')) {
-    document.getElementById('pe-display').textContent = data.market_snapshot.pe_ratio ? data.market_snapshot.pe_ratio.toFixed(2) : '---';
+    document.getElementById('pe-display').textContent = fundamentals.pe_ratio === null || fundamentals.pe_ratio === undefined
+      ? 'N/A'
+      : fundamentals.pe_ratio.toFixed(2);
   }
   if (document.getElementById('div-display')) {
-    document.getElementById('div-display').textContent = data.market_snapshot.dividend_yield ? (data.market_snapshot.dividend_yield * 100).toFixed(2) + '%' : '0.00%';
+    document.getElementById('div-display').textContent = fundamentals.dividend_yield === null || fundamentals.dividend_yield === undefined
+      ? 'N/A'
+      : `${(fundamentals.dividend_yield * 100).toFixed(2)}%`;
   }
 
   // 2. Risk Chart
@@ -702,23 +731,21 @@ async function updatePortfolio() {
 }
 
 async function fetchPortfolioPrices() {
-  const tickers = state.portfolio.map(p => p.ticker);
-  if (tickers.length === 0) return;
+  if (state.portfolio.length === 0) return;
+
+  state.portfolio.forEach(item => delete state.marketData[item.ticker]);
 
   try {
     const res = await fetch('/api/portfolio/prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tickers })
+      body: JSON.stringify({ positions: state.portfolio })
     });
 
     if (res.ok) {
       const data = await res.json();
-      // data.prices is { AAPL: 150.00, MSFT: 300.00 }
-      Object.entries(data.prices).forEach(([ticker, price]) => {
-        // Update our cache
-        if (!state.marketData[ticker]) state.marketData[ticker] = {};
-        state.marketData[ticker].current_price = price;
+      Object.entries(data.quotes || {}).forEach(([ticker, quote]) => {
+        state.marketData[ticker] = quote;
       });
     }
   } catch (err) {
@@ -726,51 +753,91 @@ async function fetchPortfolioPrices() {
   }
 }
 
+function formatCurrencyAmount(value, currency) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'Unavailable';
+  const amount = formatNumber(Number(value));
+  return currency ? `${escapeHtml(currency)} ${amount}` : `Unknown currency ${amount}`;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
+function groupedCurrencyTotals(totals) {
+  return Object.entries(totals)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([currency, value]) => formatCurrencyAmount(value, currency))
+    .join(' · ');
+}
+
 function renderPortfolio() {
   const body = document.getElementById('portfolio-body');
   if (state.portfolio.length === 0) {
     body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">No holdings yet — click Add Position to get started.</td></tr>';
-    document.getElementById('total-value').textContent = '$0.00';
-    document.getElementById('total-pl').textContent = '$0.00 (0.00%)';
+    document.getElementById('total-value').textContent = 'No holdings';
+    document.getElementById('total-pl').textContent = 'Unavailable';
     document.getElementById('total-pl').className = 'neutral';
     document.getElementById('portfolio-breakdown').innerHTML = '<p class="placeholder" style="margin-top: 2rem;">No holdings yet.</p>';
     return;
   }
 
-  let totalValue = 0;
-  let totalCost = 0;
+  const marketValueByCurrency = {};
+  const pnlByCurrency = {};
+  const comparableCostByCurrency = {};
+  let pnlUnavailableCount = 0;
 
   const rows = state.portfolio.map(item => {
-    // cost_basis is per-share. Resolve current price from cache > history > fallback to cost_basis.
-    let currentPrice = item.cost_basis;
-    if (state.marketData[item.ticker]?.current_price) {
-      currentPrice = state.marketData[item.ticker].current_price;
+    const quote = state.marketData[item.ticker] || {};
+    const currentPrice = quote.current_price !== null && quote.current_price !== undefined && Number.isFinite(Number(quote.current_price))
+      ? Number(quote.current_price)
+      : null;
+    const quoteCurrency = quote.currency || null;
+    const costCurrency = item.cost_currency || 'USD';
+    const marketValue = currentPrice === null ? null : item.quantity * currentPrice;
+    const costValue = item.quantity * item.cost_basis;
+    const comparable = marketValue !== null && quoteCurrency && quoteCurrency === costCurrency;
+    const pnl = comparable ? marketValue - costValue : null;
+    const pnlPercent = comparable && costValue > 0 ? (pnl / costValue) * 100 : null;
+
+    if (marketValue !== null && quoteCurrency) {
+      marketValueByCurrency[quoteCurrency] = (marketValueByCurrency[quoteCurrency] || 0) + marketValue;
+    }
+    if (comparable) {
+      pnlByCurrency[quoteCurrency] = (pnlByCurrency[quoteCurrency] || 0) + pnl;
+      comparableCostByCurrency[quoteCurrency] = (comparableCostByCurrency[quoteCurrency] || 0) + costValue;
     } else {
-      const hist = state.history.find(h => h.ticker === item.ticker);
-      if (hist) currentPrice = hist.market_snapshot.current_price;
+      pnlUnavailableCount += 1;
     }
 
-    const totalItemCost = item.quantity * item.cost_basis;
-    const value = item.quantity * currentPrice;
-    const pl = value - totalItemCost;
-    const plPercent = totalItemCost > 0 ? (pl / totalItemCost) * 100 : 0;
-
-    totalValue += value;
-    totalCost += totalItemCost;
-
-    const plClass = pl >= 0 ? 'plus' : 'minus';
-    const plSign = pl >= 0 ? '+' : '';
+    const plClass = pnl === null ? 'neutral' : pnl >= 0 ? 'plus' : 'minus';
+    const plSign = pnl !== null && pnl >= 0 ? '+' : '';
+    const unitLabel = item.asset_type === 'cedear' ? 'CEDEARs' : 'shares';
+    const exposure = item.asset_type === 'cedear'
+      ? (quote.position_metrics?.underlying_equivalent_quantity === null || quote.position_metrics?.underlying_equivalent_quantity === undefined
+        ? 'Underlying exposure unavailable'
+        : `${formatNumber(quote.position_metrics.underlying_equivalent_quantity, false)} ${escapeHtml(item.underlying_ticker || 'underlying')} shares · ratio ${item.cedears_per_underlying} (${escapeHtml(quote.position_metrics.ratio_status)}; source ${escapeHtml(item.ratio_source || 'not provided')}; as of ${escapeHtml(item.ratio_as_of || 'unknown')})`)
+      : '';
+    const quoteStamp = `${escapeHtml(quote.quote_status || 'unknown')} · ${escapeHtml(quote.quote_as_of || 'date unknown')}`;
+    const pnlDisplay = pnl === null
+      ? `Unavailable<br><span class="portfolio-quote-note">${marketValue === null ? 'No quote' : `Cost ${escapeHtml(costCurrency)} · quote ${escapeHtml(quoteCurrency || 'currency unknown')}`}</span>`
+      : `${plSign}${formatCurrencyAmount(Math.abs(pnl), quoteCurrency)}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${pnlPercent.toFixed(2)}%</span>`;
 
     return `
       <tr>
-        <td><span class="portfolio-ticker" onclick="selectTicker('${item.ticker}')">${item.ticker}</span></td>
-        <td>${formatNumber(item.quantity, false)}</td>
-        <td>$${formatNumber(item.cost_basis)}</td>
-        <td>$${formatNumber(currentPrice)}</td>
-        <td>$${formatNumber(value)}</td>
-        <td class="${plClass}">${plSign}$${formatNumber(Math.abs(pl))}<br><span style="font-size:0.8em;opacity:0.8;">${plSign}${plPercent.toFixed(2)}%</span></td>
+        <td><span class="portfolio-ticker" data-analyze-ticker="${escapeHtml(item.ticker)}">${escapeHtml(item.ticker)}</span><br><span class="portfolio-quote-note">${escapeHtml(item.asset_type || 'equity')}${exposure ? ` · ${exposure}` : ''}</span></td>
+        <td>${formatNumber(item.quantity, false)} ${unitLabel}</td>
+        <td>${formatCurrencyAmount(item.cost_basis, costCurrency)}</td>
+        <td>${formatCurrencyAmount(currentPrice, quoteCurrency)}<br><span class="portfolio-quote-note">${quoteStamp}</span></td>
+        <td>${formatCurrencyAmount(marketValue, quoteCurrency)}</td>
+        <td class="${plClass}">${pnlDisplay}</td>
         <td>
-          <button class="icon-btn small danger-icon" onclick="handleRemoveHolding('${item.ticker}')" title="Remove">
+          <button class="icon-btn small danger-icon" data-remove-ticker="${escapeHtml(item.ticker)}" title="Remove">
             <i data-lucide="trash-2"></i>
           </button>
         </td>
@@ -780,14 +847,28 @@ function renderPortfolio() {
 
   body.innerHTML = rows.join('');
 
-  const totalPL = totalValue - totalCost;
-  const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
-  const plSign = totalPL >= 0 ? '+' : '';
+  body.querySelectorAll('[data-analyze-ticker]').forEach(element => {
+    element.addEventListener('click', () => window.selectTicker(element.dataset.analyzeTicker));
+  });
+  body.querySelectorAll('[data-remove-ticker]').forEach(element => {
+    element.addEventListener('click', () => window.handleRemoveHolding(element.dataset.removeTicker));
+  });
 
-  document.getElementById('total-value').textContent = `$${formatNumber(totalValue)}`;
+  document.getElementById('total-value').textContent = groupedCurrencyTotals(marketValueByCurrency) || 'No current quotes';
   const plEl = document.getElementById('total-pl');
-  plEl.textContent = `${plSign}$${formatNumber(Math.abs(totalPL))} (${plSign}${totalPLPct.toFixed(2)}%)`;
-  plEl.className = totalPL >= 0 ? 'plus' : 'minus';
+  const pnlSummary = Object.entries(pnlByCurrency)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([currency, value]) => {
+      const percent = comparableCostByCurrency[currency] > 0
+        ? value / comparableCostByCurrency[currency] * 100
+        : null;
+      const sign = value >= 0 ? '+' : '';
+      return `${escapeHtml(currency)} ${sign}${formatNumber(value)}${percent === null ? '' : ` (${sign}${percent.toFixed(2)}%)`}`;
+    })
+    .join(' · ');
+  plEl.textContent = `${pnlSummary || 'Unavailable'}${pnlUnavailableCount ? ` · ${pnlUnavailableCount} position(s) not comparable` : ''}`;
+  const comparablePnls = Object.values(pnlByCurrency);
+  plEl.className = comparablePnls.length === 0 ? 'neutral' : comparablePnls.every(value => value >= 0) ? 'plus' : 'minus';
 
   // Render per-holding breakdown sidebar
   renderPortfolioBreakdown();
@@ -800,20 +881,24 @@ function renderPortfolioBreakdown() {
   if (!container) return;
 
   const items = state.portfolio.map(item => {
-    let currentPrice = item.cost_basis;
-    if (state.marketData[item.ticker]?.current_price) {
-      currentPrice = state.marketData[item.ticker].current_price;
-    }
-    const value = item.quantity * currentPrice;
-    const pl = value - (item.quantity * item.cost_basis);
-    const plClass = pl >= 0 ? 'plus' : 'minus';
-    const plSign = pl >= 0 ? '+' : '';
+    const quote = state.marketData[item.ticker] || {};
+    const currentPrice = quote.current_price !== null && quote.current_price !== undefined && Number.isFinite(Number(quote.current_price))
+      ? Number(quote.current_price)
+      : null;
+    const quoteCurrency = quote.currency || null;
+    const costCurrency = item.cost_currency || 'USD';
+    const comparable = currentPrice !== null && quoteCurrency === costCurrency;
+    const pnl = comparable ? item.quantity * (currentPrice - item.cost_basis) : null;
+    const plClass = pnl === null ? 'neutral' : pnl >= 0 ? 'plus' : 'minus';
+    const plSign = pnl !== null && pnl >= 0 ? '+' : '';
+    const unitLabel = item.asset_type === 'cedear' ? 'CEDEARs' : 'shares';
+    const exposure = quote.position_metrics?.underlying_equivalent_quantity;
     return `
       <div class="breakdown-item">
-        <div class="breakdown-ticker">${item.ticker}</div>
+        <div class="breakdown-ticker">${escapeHtml(item.ticker)}</div>
         <div class="breakdown-detail">
-          <span>${formatNumber(item.quantity, false)} shares</span>
-          <span class="${plClass}">${plSign}$${formatNumber(Math.abs(pl))}</span>
+          <span>${formatNumber(item.quantity, false)} ${unitLabel}${exposure === null || exposure === undefined ? '' : ` · ${formatNumber(exposure, false)} ${escapeHtml(item.underlying_ticker || 'underlying')} shares`}</span>
+          <span class="${plClass}">${pnl === null ? 'P/L unavailable' : `${plSign}${formatCurrencyAmount(Math.abs(pnl), quoteCurrency)}`}</span>
         </div>
       </div>
     `;
@@ -830,13 +915,33 @@ function openPortfolioModal() {
 
   // Clear fields for new entry
   document.getElementById('port-ticker-input').value = '';
+  document.getElementById('port-asset-type').value = 'equity';
+  document.getElementById('port-cost-currency').value = 'USD';
+  document.getElementById('port-underlying-ticker').value = '';
+  document.getElementById('port-cedears-ratio').value = '';
+  document.getElementById('port-ratio-source').value = '';
+  document.getElementById('port-ratio-date').value = '';
   document.getElementById('port-qty').value = '';
   document.getElementById('port-cost-per-share').value = '';
   document.getElementById('port-total-cost').value = '';
+  handleAssetTypeChange();
 
   document.getElementById('portfolio-modal').classList.remove('hidden');
   createIcons({ icons: { PlusCircle } });
   setTimeout(() => document.getElementById('port-ticker-input').focus(), 100);
+}
+
+function handleAssetTypeChange() {
+  const assetType = document.getElementById('port-asset-type').value;
+  const isCedear = assetType === 'cedear';
+  document.getElementById('cedear-fields').classList.toggle('hidden', !isCedear);
+  document.getElementById('port-cost-currency').value = isCedear ? 'ARS' : 'USD';
+  document.getElementById('port-cost-basis-label').textContent = isCedear
+    ? 'Average Cost Per CEDEAR'
+    : 'Average Cost Per Share / Unit';
+  document.getElementById('port-ticker-input').placeholder = isCedear
+    ? 'e.g. AAPL.BA'
+    : 'e.g. AAPL, MSFT';
 }
 
 function calculateTotalCost() {
@@ -856,19 +961,45 @@ async function handleSaveHolding(e) {
   if (!ticker) return;
 
   const quantity = parseFloat(document.getElementById('port-qty').value);
-  // cost_basis stored as per-share cost
+  const asset_type = document.getElementById('port-asset-type').value;
+  const cost_currency = document.getElementById('port-cost-currency').value;
   const cost_basis = parseFloat(document.getElementById('port-cost-per-share').value);
+  const ratioInput = document.getElementById('port-cedears-ratio').value;
+  const cedears_per_underlying = ratioInput ? parseFloat(ratioInput) : null;
 
   if (isNaN(quantity) || isNaN(cost_basis) || quantity <= 0 || cost_basis <= 0) {
-    alert('Please enter valid shares and cost per share.');
+    alert('Please enter a valid quantity and average cost per unit.');
     return;
   }
+  if (ratioInput && (!Number.isFinite(cedears_per_underlying) || cedears_per_underlying <= 0)) {
+    alert('The CEDEAR conversion ratio must be a positive number.');
+    return;
+  }
+
+  const payload = {
+    ticker,
+    quantity,
+    cost_basis,
+    added_at: new Date().toISOString(),
+    asset_type,
+    cost_currency,
+    underlying_ticker: asset_type === 'cedear'
+      ? document.getElementById('port-underlying-ticker').value.trim().toUpperCase() || null
+      : null,
+    cedears_per_underlying: asset_type === 'cedear' ? cedears_per_underlying : null,
+    ratio_source: asset_type === 'cedear'
+      ? document.getElementById('port-ratio-source').value.trim() || null
+      : null,
+    ratio_as_of: asset_type === 'cedear'
+      ? document.getElementById('port-ratio-date').value || null
+      : null
+  };
 
   try {
     const res = await fetch('/api/portfolio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker, quantity, cost_basis, added_at: new Date().toISOString() })
+      body: JSON.stringify(payload)
     });
     if (res.ok) {
       document.getElementById('portfolio-modal').classList.add('hidden');
@@ -1057,7 +1188,11 @@ function updatePortfolioPieChart() {
           },
           tooltip: {
             callbacks: {
-              label: (ctx) => ` ${ctx.label}: ${ctx.parsed.toFixed(1)}%`
+              label: (ctx) => {
+                const total = ctx.dataset.data.reduce((sum, value) => sum + Number(value || 0), 0);
+                const percent = total > 0 ? (ctx.parsed / total) * 100 : 0;
+                return ` ${ctx.label}: ${percent.toFixed(1)}% (${formatCurrencyAmount(ctx.parsed, ctx.dataset.label)})`;
+              }
             }
           }
         }
@@ -1071,20 +1206,38 @@ function updatePortfolioPieChart() {
     '#a855f7', '#14b8a6'
   ];
 
-  let totalValue = 0;
+  const canvas = document.getElementById('portfolio-pie-chart');
+  const note = document.getElementById('portfolio-allocation-note');
   const values = state.portfolio.map(item => {
-    const price = state.marketData[item.ticker]?.current_price || item.cost_basis;
-    const val = item.quantity * price;
-    totalValue += val;
-    return { ticker: item.ticker, value: val };
-  });
+    const quote = state.marketData[item.ticker] || {};
+    const price = Number(quote.current_price);
+    if (quote.current_price === null || quote.current_price === undefined || !Number.isFinite(price) || !quote.currency) return null;
+    return { ticker: item.ticker, currency: quote.currency, value: item.quantity * price };
+  }).filter(Boolean);
+  const currencies = [...new Set(values.map(item => item.currency))];
 
-  const labels = values.map(v => v.ticker);
-  const data = values.map(v => totalValue > 0 ? (v.value / totalValue) * 100 : 0);
+  if (currencies.length !== 1) {
+    canvas.classList.add('hidden');
+    note.classList.remove('hidden');
+    note.textContent = currencies.length > 1
+      ? 'Allocation is shown separately by currency; no FX conversion is applied.'
+      : 'Allocation is unavailable until current quotes with currency are available.';
+    return;
+  }
+
+  canvas.classList.remove('hidden');
+  note.classList.add('hidden');
+  const labels = values.map(item => item.ticker);
+  const data = values.map(item => item.value);
 
   state.charts.portfolioPie.data.labels = labels;
-  state.charts.portfolioPie.data.datasets[0].data = data;
-  state.charts.portfolioPie.data.datasets[0].backgroundColor = labels.map((_, i) => PIE_COLORS[i % PIE_COLORS.length]);
+  state.charts.portfolioPie.data.datasets = [{
+    label: currencies[0],
+    data,
+    backgroundColor: labels.map((_, i) => PIE_COLORS[i % PIE_COLORS.length]),
+    borderWidth: 2,
+    borderColor: 'rgba(12,15,23,0.8)'
+  }];
   state.charts.portfolioPie.update();
 }
 

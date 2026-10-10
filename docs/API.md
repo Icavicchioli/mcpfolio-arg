@@ -61,6 +61,11 @@ This is the slowest endpoint (~10–60 s depending on model and hardware). The L
 | `include_news` | bool | `true` | Fetch recent news articles |
 | `include_fundamentals` | bool | `true` | Include fundamentals in market snapshot |
 | `max_news` | int | `5` | Max articles to fetch (backend clamps to 1–50) |
+| `asset_type` | string | `equity` | `equity` or `cedear`; existing callers remain equities |
+| `underlying_ticker` | string | `null` | Underlying Yahoo Finance ticker for a CEDEAR, e.g. `AAPL` |
+| `quantity`, `cost_basis`, `cost_currency` | number, number, string | omitted, omitted, `USD` | Optional position context; cost basis is per held unit |
+| `cedears_per_underlying` | number | `null` | User-declared CEDEAR units representing one underlying share |
+| `ratio_source`, `ratio_as_of` | string, date | `null` | User-declared provenance; the app does not independently verify ratios |
 
 **Response `200`**
 ```json
@@ -122,6 +127,8 @@ This is the slowest endpoint (~10–60 s depending on model and hardware). The L
 **Errors**
 - `422` — invalid ticker length or missing field
 - `500` — yfinance timeout, Ollama unavailable, or other internal error
+
+For a CEDEAR, the response keeps its local quote metadata separate from an optional `underlying_snapshot`. If the underlying snapshot is unavailable, its fundamentals are reported unavailable instead of substituting CEDEAR-local data. A supplied ratio is always marked unverified.
 
 ---
 
@@ -404,9 +411,14 @@ Adds or replaces a holding. If the ticker already exists, it is replaced.
 | Field | Type | Constraints | Description |
 |---|---|---|---|
 | `ticker` | string | required | Stock symbol |
-| `quantity` | float | `> 0` | Number of shares |
-| `cost_basis` | float | `> 0` | Purchase price per share |
+| `quantity` | float | `> 0` | Number of held units (shares or CEDEARs) |
+| `cost_basis` | float | `> 0` | Average cost per held unit |
 | `added_at` | datetime | required | ISO 8601 timestamp |
+| `asset_type` | string | `equity` | `equity` or `cedear` |
+| `cost_currency` | string | `USD` | Three-letter currency code for `cost_basis` |
+| `underlying_ticker` | string | `null` | Underlying symbol for a CEDEAR |
+| `cedears_per_underlying` | number | `null` | CEDEAR units per one underlying share; user-verified only |
+| `ratio_source`, `ratio_as_of` | string, date | `null` | User-declared ratio source and check date |
 
 **Response `200`**
 ```json
@@ -435,11 +447,31 @@ Removes a holding by ticker.
 
 ### `POST /api/portfolio/prices`
 
-Batch-fetches current market prices for a list of tickers. Calls `get_market_snapshot` in parallel for each ticker.
+Batch-fetches market prices for holdings. Calls `get_market_snapshot` in parallel for each ticker; the legacy `tickers` body remains supported.
 
 **Request body**
 ```json
 { "tickers": ["AAPL", "MSFT", "GOOGL"] }
+```
+
+For quote metadata and per-position valuation, send full positions:
+
+```json
+{
+  "positions": [
+    {
+      "ticker": "AAPL.BA",
+      "quantity": 10,
+      "cost_basis": 27000,
+      "cost_currency": "ARS",
+      "asset_type": "cedear",
+      "underlying_ticker": "AAPL",
+      "cedears_per_underlying": 10,
+      "ratio_source": "User-provided source",
+      "ratio_as_of": "2026-10-01"
+    }
+  ]
+}
 ```
 
 **Response `200`**
@@ -453,7 +485,9 @@ Batch-fetches current market prices for a list of tickers. Calls `get_market_sna
 }
 ```
 
-Tickers that fail to fetch (rate limit, invalid symbol) are omitted from the response without erroring the whole request.
+Tickers that fail to fetch (rate limit, invalid symbol) are omitted from the response without erroring the whole request. Detailed quotes include currency, exchange, source, timestamp and freshness; enriched positions include market value, cost/P&L comparability and underlying-equivalent quantity.
+
+Totals are grouped by currency. P/L is `null` if the cost currency differs from the quote currency or the quote is missing; no FX rate is inferred. Equivalent underlying quantity is `quantity / cedears_per_underlying`, and is unavailable if the ratio or underlying is missing. Ratio statuses are `missing`, `invalid`, `user_provided_unverified`, or `stale_unverified`; no status claims independent verification. Quote statuses are `fresh`, `stale`, or `unknown` (older than seven days is stale).
 
 **Errors**
 - `500` — market data tool unavailable

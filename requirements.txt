@@ -47,3 +47,7 @@ httpx==0.28.1
 # langsmith>=0.1.0  # LangChain telemetry
 # pydantic>=2.0     # Data validation
 # typing-extensions>=4.12  # Type hints backport
+# Keep AnyIO in the Conda env instead of resolving it from Python's user site.
+anyio==4.11.0
+# pydocket 0.16.6 imports FakeServer from fakeredis.aioredis; 2.39.0 removed that export.
+fakeredis==2.38.0

@@ -1,5 +1,6 @@
 """Unit tests for get_market_snapshot tool"""
 
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -123,3 +124,29 @@ def test_get_market_snapshot_optional_fields(finance_tools):
         # Should succeed even without optional fields
         assert "error" not in result
         assert result["ticker"] == "TEST"
+
+
+def test_get_market_snapshot_includes_quote_provenance(finance_tools):
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock = Mock()
+        mock.info = {
+            "symbol": "TEST.BA",
+            "currentPrice": 27200.0,
+            "currency": "ARS",
+            "exchange": "BUE",
+            "regularMarketTime": int(datetime.now(timezone.utc).timestamp()),
+        }
+        mock.fast_info = {"currency": "ARS", "exchange": "BUE"}
+        mock.history.return_value = pd.DataFrame(
+            {"High": [28000.0, 27500.0], "Low": [26000.0, 25000.0], "Close": [27000.0, 27200.0]},
+            index=pd.to_datetime(["2026-10-08", "2026-10-09"]),
+        )
+        mock_ticker_cls.return_value = mock
+
+        result = finance_tools["get_market_snapshot"]("TEST.BA")
+
+    assert result["currency"] == "ARS"
+    assert result["exchange"] == "BUE"
+    assert result["quote_as_of"]
+    assert result["quote_status"] == "fresh"
+    assert result["quote_source"] == "Yahoo Finance via yfinance"

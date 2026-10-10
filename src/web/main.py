@@ -13,9 +13,9 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -25,10 +25,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.config import get_settings
 from src.logging_config import get_logger, start_request
+from src.market.cedears import (
+    aggregate_position_metrics,
+    calculate_position_metrics,
+    cedear_ratio_status,
+    normalize_currency,
+)
 from src.persistence import ThesisStore
 from src.prompts import (
     COMPARISON_SYSTEM_PROMPT,
@@ -52,6 +58,22 @@ class AnalysisRequest(BaseModel):
     include_sentiment: bool = Field(True, description="Include sentiment data")
     include_fundamentals: bool = Field(True, description="Include fundamental data")
     max_news: int = Field(5, description="Max news articles to fetch")
+    asset_type: Literal["equity", "cedear"] = "equity"
+    underlying_ticker: str | None = None
+    cedears_per_underlying: float | None = Field(None, gt=0)
+    ratio_source: str | None = None
+    ratio_as_of: date | None = None
+    quantity: float | None = Field(None, gt=0)
+    cost_basis: float | None = Field(None, gt=0)
+    cost_currency: str = "USD"
+
+    @field_validator("cost_currency")
+    @classmethod
+    def validate_cost_currency(cls, value: str) -> str:
+        currency = normalize_currency(value)
+        if currency is None:
+            raise ValueError("cost_currency must be a three-letter currency code")
+        return currency
 
 
 class WatchlistItem(BaseModel):
@@ -86,6 +108,20 @@ class PortfolioItem(BaseModel):
     quantity: float = Field(..., gt=0)
     cost_basis: float = Field(..., gt=0)
     added_at: datetime
+    asset_type: Literal["equity", "cedear"] = "equity"
+    cost_currency: str = "USD"
+    underlying_ticker: str | None = None
+    cedears_per_underlying: float | None = Field(None, gt=0)
+    ratio_source: str | None = None
+    ratio_as_of: date | None = None
+
+    @field_validator("cost_currency")
+    @classmethod
+    def validate_cost_currency(cls, value: str) -> str:
+        currency = normalize_currency(value)
+        if currency is None:
+            raise ValueError("cost_currency must be a three-letter currency code")
+        return currency
 
 
 class HealthResponse(BaseModel):
@@ -472,25 +508,36 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
 
     sentiment_tool = tool_map.get("get_sentiment_data") if request.include_sentiment else None
     news_tool = tool_map.get("get_news") if request.include_news else None
+    analysis_ticker = (
+        request.underlying_ticker.upper()
+        if request.asset_type == "cedear" and request.underlying_ticker
+        else request.ticker
+    )
 
     async def _noop():
         return None
 
-    # Fetch market data, sentiment, and news in parallel
-    _gather_results: tuple[Any, Any, Any] = await asyncio.gather(
+    # Keep the local instrument quote distinct from underlying fundamentals.
+    _gather_results: tuple[Any, Any, Any, Any] = await asyncio.gather(
         market_snapshot_tool.ainvoke({"ticker": request.ticker}),
-        sentiment_tool.ainvoke({"ticker": request.ticker}) if sentiment_tool else _noop(),
         (
-            news_tool.ainvoke({"ticker": request.ticker, "count": request.max_news})
+            market_snapshot_tool.ainvoke({"ticker": analysis_ticker})
+            if analysis_ticker != request.ticker.upper()
+            else _noop()
+        ),
+        sentiment_tool.ainvoke({"ticker": analysis_ticker}) if sentiment_tool else _noop(),
+        (
+            news_tool.ainvoke({"ticker": analysis_ticker, "count": request.max_news})
             if news_tool
             else _noop()
         ),
         return_exceptions=True,
     )
     raw_market_data: Any
+    raw_underlying_data: Any
     raw_sentiment: Any
     raw_news: Any
-    raw_market_data, raw_sentiment, raw_news = _gather_results
+    raw_market_data, raw_underlying_data, raw_sentiment, raw_news = _gather_results
 
     market_data = (
         parse_tool_result(raw_market_data)
@@ -503,6 +550,48 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
             status_code=400,
             detail=f"Failed to get market data: {market_data.get('message', market_data.get('error', 'Unknown error'))}",
         )
+
+    if request.asset_type == "cedear":
+        underlying_data = None
+        if raw_underlying_data is not None and not isinstance(raw_underlying_data, Exception):
+            parsed_underlying = parse_tool_result(raw_underlying_data)
+            if not parsed_underlying.get("error"):
+                underlying_data = parsed_underlying
+
+        ratio_status = cedear_ratio_status(request.cedears_per_underlying, request.ratio_as_of)
+        market_data.update(
+            {
+                "asset_type": "cedear",
+                "underlying_ticker": request.underlying_ticker.upper()
+                if request.underlying_ticker
+                else None,
+                "underlying_snapshot": underlying_data,
+                "cedears_per_underlying": request.cedears_per_underlying,
+                "ratio_source": request.ratio_source,
+                "ratio_as_of": request.ratio_as_of.isoformat() if request.ratio_as_of else None,
+                "ratio_status": ratio_status,
+                "ratio_verified": False,
+                "underlying_equivalent_quantity": (
+                    request.quantity / request.cedears_per_underlying
+                    if request.quantity is not None
+                    and request.cedears_per_underlying is not None
+                    and request.underlying_ticker
+                    and ratio_status in {"user_provided_unverified", "stale_unverified"}
+                    else None
+                ),
+            }
+        )
+        if request.quantity is not None and request.cost_basis is not None:
+            market_data["position_valuation"] = calculate_position_metrics(
+                quantity=request.quantity,
+                cost_basis=request.cost_basis,
+                cost_currency=request.cost_currency,
+                quote=market_data,
+                asset_type="cedear",
+                underlying_ticker=request.underlying_ticker,
+                cedears_per_underlying=request.cedears_per_underlying,
+                ratio_as_of=request.ratio_as_of,
+            )
 
     # Parse sentiment
     sentiment_data = None
@@ -519,7 +608,12 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
             news_data = news_result.get("news", [])
 
     # Multi-factor risk score: volatility (40%), analyst sentiment (30%), P/E (30%)
-    volatility = market_data.get("volatility_52_week_pct", 0) / 100
+    fundamentals = (
+        market_data.get("underlying_snapshot") or {}
+        if request.asset_type == "cedear"
+        else market_data
+    )
+    volatility = fundamentals.get("volatility_52_week_pct", 0) / 100
     vol_score = min(volatility * 100, 100)  # 0-100: 50% vol -> 50 score
 
     # Analyst sentiment component: more buy ratings = lower risk
@@ -547,7 +641,7 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
             sentiment_score = max(0, min(100, 50 - (buy_count - sell_count) / total * 50))
 
     # P/E ratio component: extreme values raise risk, moderate is neutral
-    pe_ratio = market_data.get("pe_ratio") or market_data.get("trailing_pe")
+    pe_ratio = fundamentals.get("pe_ratio") or fundamentals.get("trailing_pe")
     pe_score = 50.0  # neutral default
     if pe_ratio is not None and pe_ratio > 0:
         if pe_ratio < 10:
@@ -580,7 +674,11 @@ async def run_analysis_task(request: AnalysisRequest) -> AnalysisResponse:
         holdings = session.portfolio_manager.load()
         ticker_holding = next((h for h in holdings if h.ticker == request.ticker.upper()), None)
         if ticker_holding:
-            context += f"\nUser Portfolio Holding: {ticker_holding.quantity} shares @ ${ticker_holding.cost_basis} cost basis."
+            context += (
+                f"\nUser Portfolio Holding: {ticker_holding.quantity} "
+                f"{ticker_holding.asset_type} units @ {ticker_holding.cost_currency} "
+                f"{ticker_holding.cost_basis} per unit."
+            )
 
     logger.info("ai_synthesis_started", ticker=request.ticker)
     try:
@@ -673,11 +771,17 @@ async def set_active_model(model_request: dict):
 async def get_portfolio_prices(request: dict):
     """
     Batch fetch current prices for a list of tickers.
-    Request body: {"tickers": ["AAPL", "MSFT", ...]}
+    Request body accepts legacy {"tickers": [...]} or enriched {"positions": [...] }.
     """
-    tickers = request.get("tickers", [])
+    positions = request.get("positions")
+    if isinstance(positions, list):
+        positions = [p for p in positions if isinstance(p, dict) and p.get("ticker")]
+        tickers = [str(p["ticker"]).strip().upper() for p in positions]
+    else:
+        positions = []
+        tickers = [str(t).strip().upper() for t in request.get("tickers", []) if t]
     if not tickers:
-        return {"prices": {}}
+        return {"prices": {}, "quotes": {}}
 
     from src.tools.lazy_loader import get_mcp_tools
 
@@ -689,6 +793,9 @@ async def get_portfolio_prices(request: dict):
         raise HTTPException(status_code=500, detail="Market tool unavailable")
 
     results = {}
+    quote_results = {}
+    valuation_results = []
+    positions_by_ticker = {str(p["ticker"]).strip().upper(): p for p in positions}
     # Process in parallel
     tasks = [market_tool.ainvoke({"ticker": t}) for t in tickers]
     tool_outputs = await asyncio.gather(*tasks, return_exceptions=True)
@@ -700,9 +807,28 @@ async def get_portfolio_prices(request: dict):
 
         data = parse_tool_result(output)
         if data and data.get("current_price"):
-            results[ticker.upper()] = data.get("current_price")
+            normalized_ticker = ticker.upper()
+            results[normalized_ticker] = data.get("current_price")
+            position = positions_by_ticker.get(normalized_ticker)
+            if position and position.get("quantity") is not None and position.get("cost_basis") is not None:
+                data["position_metrics"] = calculate_position_metrics(
+                    quantity=position["quantity"],
+                    cost_basis=position["cost_basis"],
+                    cost_currency=position.get("cost_currency", "USD"),
+                    quote=data,
+                    asset_type=position.get("asset_type", "equity"),
+                    underlying_ticker=position.get("underlying_ticker"),
+                    cedears_per_underlying=position.get("cedears_per_underlying"),
+                    ratio_as_of=position.get("ratio_as_of"),
+                )
+                valuation_results.append(data["position_metrics"])
+            quote_results[normalized_ticker] = data
 
-    return {"prices": results}
+    return {
+        "prices": results,
+        "quotes": quote_results,
+        "totals": aggregate_position_metrics(valuation_results),
+    }
 
 
 @app.post("/api/admin/shutdown")
@@ -1308,10 +1434,44 @@ async def websocket_advisor(websocket: WebSocket):
             if session.portfolio_manager.is_unlocked():
                 holdings = session.portfolio_manager.load()
                 if holdings:
-                    summary = "User's current portfolio: " + ", ".join(
-                        f"{h.ticker} ({h.quantity} shares @ ${h.cost_basis}/share)"
-                        for h in holdings
-                    )
+                    descriptions = []
+                    for holding in holdings:
+                        cost_currency = holding.cost_currency or "USD"
+                        if holding.asset_type == "cedear":
+                            ratio_status = cedear_ratio_status(
+                                holding.cedears_per_underlying,
+                                holding.ratio_as_of,
+                            )
+                            equivalent = (
+                                holding.quantity / holding.cedears_per_underlying
+                                if holding.underlying_ticker
+                                and holding.cedears_per_underlying
+                                and ratio_status in {"user_provided_unverified", "stale_unverified"}
+                                else None
+                            )
+                            ratio_note = (
+                                f"{holding.cedears_per_underlying} CEDEARs per underlying share "
+                                f"(status: {ratio_status}, source: {holding.ratio_source or 'not provided'}, "
+                                f"as of: {holding.ratio_as_of or 'unknown'})"
+                                if holding.cedears_per_underlying
+                                else "conversion ratio missing"
+                            )
+                            exposure_note = (
+                                f", equivalent to {equivalent} {holding.underlying_ticker} shares"
+                                if equivalent is not None
+                                else ", underlying exposure unavailable"
+                            )
+                            descriptions.append(
+                                f"{holding.ticker} CEDEAR ({holding.quantity} units @ "
+                                f"{cost_currency} {holding.cost_basis}/unit; underlying "
+                                f"{holding.underlying_ticker or 'unknown'}; {ratio_note}{exposure_note})"
+                            )
+                        else:
+                            descriptions.append(
+                                f"{holding.ticker} equity ({holding.quantity} shares @ "
+                                f"{cost_currency} {holding.cost_basis}/share)"
+                            )
+                    summary = "User's current portfolio: " + "; ".join(descriptions)
                     input_messages.append(SystemMessage(content=summary))
             input_messages.append(HumanMessage(content=user_text))
 
